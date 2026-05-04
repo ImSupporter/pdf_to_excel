@@ -1,12 +1,11 @@
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
-from core.models import Transaction, STANDARD_FIELDS
-from core.normalizer import transactions_to_rows
 
 HEADER_FONT = Font(bold=True)
 HEADER_FILL = PatternFill(fill_type="solid", fgColor="D9E1F2")
 
-def _write_sheet(ws, headers: list[str], rows: list[dict]):
+
+def _write_sheet(ws, headers: list[str], rows: list[dict]) -> None:
     for col, header in enumerate(headers, 1):
         cell = ws.cell(1, col, header)
         cell.font = HEADER_FONT
@@ -16,32 +15,27 @@ def _write_sheet(ws, headers: list[str], rows: list[dict]):
         for col, header in enumerate(headers, 1):
             ws.cell(row_idx, col, row.get(header, ""))
 
+
 def export_to_excel(
-    transactions: list[Transaction],
     broker_raw: dict[str, list[dict]],
-    selected_fields: list[str],
     output_path: str,
 ) -> None:
     """
-    transactions: all normalized transactions
-    broker_raw: {"broker_name": [original_row_dict, ...]}
-    selected_fields: STANDARD_FIELDS keys for unified sheet
-    output_path: output .xlsx path
+    broker_raw: {"증권사명": [원본_행_dict, ...]}
+    output_path: 저장할 .xlsx 경로
+    증권사별로 시트 1개씩 생성. 빈 증권사는 건너뜀.
     """
     wb = openpyxl.Workbook()
+    wb.remove(wb.active)  # 기본 Sheet 제거
 
-    # Sheet 1: 통합
-    ws_unified = wb.active
-    ws_unified.title = "통합"
-    unified_rows = transactions_to_rows(transactions, selected_fields)
-    headers = [STANDARD_FIELDS.get(f, f) for f in selected_fields]
-    _write_sheet(ws_unified, headers, unified_rows)
-
-    # Sheet 2+: per-broker original
     for broker_name, raw_rows in broker_raw.items():
-        ws = wb.create_sheet(title=broker_name)
-        if raw_rows:
-            broker_headers = list(raw_rows[0].keys())
-            _write_sheet(ws, broker_headers, raw_rows)
+        if not raw_rows:
+            continue
+        ws = wb.create_sheet(title=broker_name[:31])  # Excel 시트명 31자 제한
+        headers = list(raw_rows[0].keys())
+        _write_sheet(ws, headers, raw_rows)
+
+    if not wb.sheetnames:
+        ws = wb.create_sheet(title="결과없음")
 
     wb.save(output_path)

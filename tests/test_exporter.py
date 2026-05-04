@@ -1,52 +1,80 @@
-import tempfile, os
+import os
+import tempfile
 import openpyxl
-from core.models import Transaction, STANDARD_FIELDS
 from core.exporter import export_to_excel
 
-def _make_tx(broker="삼성증권", date="2025/11/06"):
-    return Transaction(
-        date=date, type="매수", ticker="", name="KODEX S&P500",
-        quantity=5, price=22755.0, amount=113775, fee=1,
-        tax=0, balance=500000, broker=broker,
-        raw={"거래일자": date, "거래명": "매수", "종목명": "KODEX S&P500",
-             "거래수량": "5", "거래금액": "113,775"}
-    )
 
-def test_export_creates_file():
-    txs = [_make_tx("삼성증권"), _make_tx("미래에셋증권")]
+def test_export_creates_broker_sheets():
+    broker_raw = {
+        "삼성증권": [
+            {"거래일자": "2025/11/06", "거래명": "매수", "거래금액": "113,775"},
+            {"거래일자": "2025/11/07", "거래명": "매도", "거래금액": "50,000"},
+        ],
+        "미래에셋증권": [
+            {"거래일자": "2025/11/06", "거래종류": "매수", "거래금액": "200,000"},
+        ],
+    }
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         path = f.name
     try:
-        export_to_excel(
-            transactions=txs,
-            broker_raw={"삼성증권": [txs[0].raw], "미래에셋증권": [txs[1].raw]},
-            selected_fields=list(STANDARD_FIELDS.keys()),
-            output_path=path,
-        )
-        assert os.path.exists(path)
+        export_to_excel(broker_raw, path)
         wb = openpyxl.load_workbook(path)
-        assert "통합" in wb.sheetnames
         assert "삼성증권" in wb.sheetnames
         assert "미래에셋증권" in wb.sheetnames
+        assert "통합" not in wb.sheetnames
     finally:
         os.unlink(path)
 
-def test_export_unified_sheet_has_correct_columns():
-    txs = [_make_tx()]
+
+def test_export_broker_sheet_headers_match_raw_keys():
+    broker_raw = {
+        "테스트증권": [
+            {"거래일자": "2025/01/01", "종목명": "삼성전자", "거래금액": "100,000"},
+        ]
+    }
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         path = f.name
     try:
-        export_to_excel(
-            transactions=txs,
-            broker_raw={"삼성증권": [txs[0].raw]},
-            selected_fields=["date", "type", "amount"],
-            output_path=path,
-        )
+        export_to_excel(broker_raw, path)
         wb = openpyxl.load_workbook(path)
-        ws = wb["통합"]
+        ws = wb["테스트증권"]
         headers = [ws.cell(1, c).value for c in range(1, 4)]
         assert "거래일자" in headers
-        assert "거래종류" in headers
+        assert "종목명" in headers
         assert "거래금액" in headers
+    finally:
+        os.unlink(path)
+
+
+def test_export_broker_sheet_data_rows():
+    broker_raw = {
+        "테스트증권": [
+            {"거래일자": "2025/01/01", "거래금액": "100,000"},
+            {"거래일자": "2025/01/02", "거래금액": "200,000"},
+        ]
+    }
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+        path = f.name
+    try:
+        export_to_excel(broker_raw, path)
+        wb = openpyxl.load_workbook(path)
+        ws = wb["테스트증권"]
+        assert ws.max_row == 3  # header + 2 data rows
+    finally:
+        os.unlink(path)
+
+
+def test_export_skips_empty_broker():
+    broker_raw = {
+        "빈증권": [],
+        "테스트증권": [{"거래일자": "2025/01/01"}],
+    }
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+        path = f.name
+    try:
+        export_to_excel(broker_raw, path)
+        wb = openpyxl.load_workbook(path)
+        assert "빈증권" not in wb.sheetnames
+        assert "테스트증권" in wb.sheetnames
     finally:
         os.unlink(path)
