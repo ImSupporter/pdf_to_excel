@@ -44,3 +44,6 @@ build/
 
 # Local tooling
 .claude/
+
+# Git worktrees
+.worktrees/
