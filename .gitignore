@@ -1,7 +1,44 @@
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+junit.xml
+test-results/
+
+# Build / Distribution
 dist/
 build/
 *.spec
-.pytest_cache/
+
+# PyInstaller output
+*.exe
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment
+.env
+.env.*
+
+# Personal financial data — never commit
 *.pdf
+
+# Local tooling
+.claude/
