@@ -105,6 +105,8 @@ class MainWindow(QMainWindow):
             self._process_file(path)
 
     def _process_file(self, path: str):
+        from ui.parser_select_dialog import ParserSelectDialog
+
         filename = os.path.basename(path)
         dlg = PasswordDialog(filename, self._last_password, self)
         if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -120,18 +122,21 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "비밀번호 오류", str(e))
             return
 
-        # TODO Task 8: replace with ParserSelectDialog
         recommended = detect_parser(pages)
-        if recommended is None:
-            QMessageBox.warning(self, "파서 없음", "인식된 파서가 없습니다. 파서를 추가하세요.")
+        select_dlg = ParserSelectDialog(pages, recommended, parent=self)
+        if select_dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        parser_class = recommended
+
+        parser_class = select_dlg.get_selected_parser()
+        if parser_class is None:
+            return
 
         row = self.table.rowCount()
         self.table.insertRow(row)
         self.table.setItem(row, 0, QTableWidgetItem(filename))
         self.table.setItem(row, 1, QTableWidgetItem(parser_class.BROKER_NAME))
-        self.table.setItem(row, 2, QTableWidgetItem("✓ 인식됨"))
+        rec_mark = "★ 추천" if recommended and recommended.BROKER_NAME == parser_class.BROKER_NAME else "✓ 선택"
+        self.table.setItem(row, 2, QTableWidgetItem(rec_mark))
         self._file_entries.append((path, password, parser_class))
 
     def _remove_selected(self):
