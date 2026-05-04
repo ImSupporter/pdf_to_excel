@@ -1,10 +1,15 @@
 import fitz
+from core.ocr import is_scanned_page, ocr_page_to_rows
 
 def get_page_rows(page: fitz.Page, y_tolerance: float = 4.0) -> list[list[tuple]]:
     """
-    Extract words from a page and group them into rows by y-coordinate proximity.
+    Extract words and group into rows by y-coordinate proximity.
+    Scanned (image-only) pages automatically fall back to OCR.
     Returns: [[(x0, text), ...], ...] — rows sorted by y, cells sorted by x within each row
     """
+    if is_scanned_page(page):
+        return ocr_page_to_rows(page)
+
     words = page.get_text("words")
     # words format: (x0, y0, x1, y1, "text", block_no, line_no, word_no)
     if not words:
