@@ -55,3 +55,132 @@ def save(configs: list[DynamicParserConfig]) -> None:
     data = [dataclasses.asdict(cfg) for cfg in configs]
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def build_class(config: "DynamicParserConfig") -> type:
+    """config를 받아 BaseParser를 상속하는 런타임 클래스를 반환한다."""
+    import re as _re
+    from parsers.base import BaseParser
+    from core.models import Transaction
+    from core.pdf_utils import get_page_rows
+
+    _cfg = config
+    _date_re = _re.compile(config.date_re)
+
+    def _parse_num(s: str) -> float:
+        try:
+            return float(str(s).replace(",", "").replace(" ", ""))
+        except (ValueError, AttributeError):
+            return 0.0
+
+    def parse(self, pages):
+        transactions: list[Transaction] = []
+        raw_rows: list[dict] = []
+
+        for page_idx, page in enumerate(pages):
+            if page_idx < _cfg.start_page:
+                continue
+
+            if _cfg.layout_type == "table":
+                all_rows = list(get_page_rows(page, y_tolerance=4.0))
+                i = 0
+                while i < len(all_rows):
+                    anchor_texts = [cell[1] for cell in all_rows[i]]
+                    if not anchor_texts:
+                        i += 1
+                        continue
+                    if any(kw in " ".join(anchor_texts) for kw in _cfg.skip_keywords):
+                        i += 1
+                        continue
+                    if not _date_re.match(anchor_texts[0]):
+                        i += 1
+                        continue
+
+                    groups: list[list[str]] = [anchor_texts]
+                    for offset in range(1, _cfg.rows_per_tx):
+                        j = i + offset
+                        groups.append([cell[1] for cell in all_rows[j]] if j < len(all_rows) else [])
+
+                    raw: dict = {}
+                    for fm in _cfg.field_mappings:
+                        grp = groups[fm.row_offset] if fm.row_offset < len(groups) else []
+                        raw[fm.standard_field] = grp[fm.column_index] if fm.column_index < len(grp) else ""
+
+                    transactions.append(Transaction(
+                        date=raw.get("date", ""),
+                        type=raw.get("type", ""),
+                        ticker=raw.get("ticker", ""),
+                        name=raw.get("name", ""),
+                        quantity=_parse_num(raw.get("quantity", "")),
+                        price=_parse_num(raw.get("price", "")),
+                        amount=_parse_num(raw.get("amount", "")),
+                        fee=_parse_num(raw.get("fee", "")),
+                        tax=_parse_num(raw.get("tax", "")),
+                        balance=_parse_num(raw.get("balance", "")),
+                        broker=_cfg.broker_name,
+                        raw=raw,
+                    ))
+                    raw_rows.append(raw)
+                    i += _cfg.rows_per_tx
+
+            elif _cfg.layout_type == "rotated":
+                items: list[dict] = []
+                for block in page.get_text("dict").get("blocks", []):
+                    if block.get("type") != 0:
+                        continue
+                    bx = block["bbox"][0]
+                    for line in block.get("lines", []):
+                        for span in line.get("spans", []):
+                            text = span["text"].strip()
+                            if text:
+                                items.append({
+                                    "x": round(bx),
+                                    "y_top": round(span["bbox"][1]),
+                                    "text": text,
+                                })
+
+                for date_item in [it for it in items if _date_re.match(it["text"])]:
+                    raw = {"date": date_item["text"]}
+                    for fm in _cfg.field_mappings:
+                        if fm.standard_field == "date":
+                            continue
+                        candidates = [
+                            it for it in items
+                            if fm.y_min <= it["y_top"] <= fm.y_max
+                            and abs(it["x"] - date_item["x"]) <= 50
+                        ]
+                        raw[fm.standard_field] = candidates[0]["text"] if candidates else ""
+
+                    transactions.append(Transaction(
+                        date=raw.get("date", ""),
+                        type=raw.get("type", ""),
+                        ticker=raw.get("ticker", ""),
+                        name=raw.get("name", ""),
+                        quantity=_parse_num(raw.get("quantity", "")),
+                        price=_parse_num(raw.get("price", "")),
+                        amount=_parse_num(raw.get("amount", "")),
+                        fee=_parse_num(raw.get("fee", "")),
+                        tax=_parse_num(raw.get("tax", "")),
+                        balance=_parse_num(raw.get("balance", "")),
+                        broker=_cfg.broker_name,
+                        raw=raw,
+                    ))
+                    raw_rows.append(raw)
+
+        return transactions, raw_rows
+
+    from parsers.base import BaseParser as _BaseParser
+    return type(
+        f"DynamicParser_{config.broker_name}",
+        (_BaseParser,),
+        {
+            "BROKER_NAME": config.broker_name,
+            "DETECTION_KEYWORDS": list(config.detection_keywords),
+            "parse": parse,
+        },
+    )
+
+
+def get_all_parsers() -> list:
+    from parsers import PARSERS
+    return PARSERS + [build_class(cfg) for cfg in load()]
