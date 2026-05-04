@@ -34,7 +34,7 @@ def export_to_excel(
     ws_unified = wb.active
     ws_unified.title = "통합"
     unified_rows = transactions_to_rows(transactions, selected_fields)
-    headers = [STANDARD_FIELDS[f] for f in selected_fields]
+    headers = [STANDARD_FIELDS.get(f, f) for f in selected_fields]
     _write_sheet(ws_unified, headers, unified_rows)
 
     # Sheet 2+: per-broker original
