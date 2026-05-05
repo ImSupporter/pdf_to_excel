@@ -86,3 +86,36 @@ def test_find_zone_index_returns_nearest_zone_index():
     assert _find_zone_index(49.0, zones) == 0
     assert _find_zone_index(201.0, zones) == 1
     assert _find_zone_index(340.0, zones) == 2
+
+
+def test_date_format_to_re_slash():
+    from core.parser_template import date_format_to_re
+    assert date_format_to_re("yyyy/mm/dd") == r"\d{4}/\d{2}/\d{2}"
+
+
+def test_date_format_to_re_dash():
+    from core.parser_template import date_format_to_re
+    assert date_format_to_re("yyyy-mm-dd") == r"\d{4}-\d{2}-\d{2}"
+
+
+def test_date_format_to_re_dot():
+    from core.parser_template import date_format_to_re
+    assert date_format_to_re("yyyy.mm.dd") == r"\d{4}\.\d{2}\.\d{2}"
+
+
+def test_date_format_to_re_two_digit_year():
+    from core.parser_template import date_format_to_re
+    assert date_format_to_re("yy/mm/dd") == r"\d{2}/\d{2}/\d{2}"
+
+
+def test_detect_date_format_slash():
+    from core.parser_template import _detect_date_format
+    result = _detect_date_format(["계좌번호", "1234", "2025/11/06", "매도"])
+    assert result is not None
+    assert result[0] == r"\d{4}/\d{2}/\d{2}"
+    assert result[1] == "yyyy/mm/dd"
+
+
+def test_detect_date_format_returns_none():
+    from core.parser_template import _detect_date_format
+    assert _detect_date_format(["계좌번호", "ABC", "테스트"]) is None

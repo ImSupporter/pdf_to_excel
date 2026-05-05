@@ -13,6 +13,34 @@ GRAY_FILL = "BFBFBF"
 META_SHEET = "_metadata"
 FIELDS_SHEET = "필드목록"
 
+_AUTO_DATE_PATTERNS: list[tuple[str, str]] = [
+    (r"\d{4}/\d{2}/\d{2}", "yyyy/mm/dd"),
+    (r"\d{4}-\d{2}-\d{2}", "yyyy-mm-dd"),
+    (r"\d{4}\.\d{2}\.\d{2}", "yyyy.mm.dd"),
+    (r"\d{2}/\d{2}/\d{4}", "dd/mm/yyyy"),
+]
+
+
+def date_format_to_re(fmt: str) -> str:
+    r"""Convert user-friendly date format string to regex. e.g. 'yyyy/mm/dd' → r'\d{4}/\d{2}/\d{2}'"""
+    result = fmt
+    result = result.replace("yyyy", r"\d{4}")
+    result = result.replace("yy", r"\d{2}")
+    result = result.replace("mm", r"\d{2}")
+    result = result.replace("dd", r"\d{2}")
+    result = result.replace(".", r"\.")
+    return result
+
+
+def _detect_date_format(texts: list[str]) -> tuple[str, str] | None:
+    """Scan texts for a known date pattern. Returns (regex, format_str) or None."""
+    import re
+    for pattern, fmt in _AUTO_DATE_PATTERNS:
+        compiled = re.compile(pattern)
+        if any(compiled.match(t) for t in texts):
+            return pattern, fmt
+    return None
+
 
 @dataclass
 class TemplateCell:
