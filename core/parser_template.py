@@ -176,66 +176,204 @@ def _extract_page_cells(page: fitz.Page, page_index: int, y_tolerance: float = 4
     return cells
 
 
-def export_parser_template(pages: list[fitz.Page], output_path: str | Path, max_pages: int = 5) -> None:
+def export_parser_template(
+    pages: list,
+    output_path,
+    data_start_keyword: str,
+    date_re: str | None = None,
+    max_pages: int = 3,
+) -> str | None:
+    """Generate Excel template for header_mapped parser creation.
+
+    Returns detected date format string (e.g. "yyyy/mm/dd") or None when
+    date_re was provided without a matching _AUTO_DATE_PATTERNS entry.
+    Raises ValueError if data_start_keyword is not found or date detection fails.
+    """
+    import re as _re
+    from collections import defaultdict
+    from pathlib import Path
+
+    all_page_cells = [
+        _extract_page_cells(page, pi) for pi, page in enumerate(pages[:max_pages])
+    ]
+
+    # Find header group start
+    header_start_page = None
+    header_start_row_idx = None
+    for pi, cells in enumerate(all_page_cells):
+        for c in cells:
+            if data_start_keyword in c.text:
+                header_start_page = pi
+                header_start_row_idx = c.row_index
+                break
+        if header_start_page is not None:
+            break
+
+    if header_start_page is None:
+        raise ValueError(f"'{data_start_keyword}'를 PDF에서 찾을 수 없습니다.")
+
+    # Resolve date_re
+    detected_format = None
+    if date_re is None:
+        candidate_texts = [
+            c.text for c in all_page_cells[header_start_page]
+            if c.row_index > header_start_row_idx
+        ]
+        result = _detect_date_format(candidate_texts)
+        if result is None:
+            raise ValueError(
+                "날짜 패턴을 자동으로 감지할 수 없습니다. 날짜 형식을 직접 입력하세요 (예: yyyy/mm/dd)."
+            )
+        date_re, detected_format = result
+    else:
+        for pattern, fmt in _AUTO_DATE_PATTERNS:
+            if date_re == pattern:
+                detected_format = fmt
+                break
+
+    compiled_re = _re.compile(date_re)
+
+    # Group cells by row on the header page
+    page_cells = all_page_cells[header_start_page]
+    cells_by_row = defaultdict(list)
+    for c in page_cells:
+        cells_by_row[c.row_index].append(c)
+
+    # Identify header group rows (from keyword row up to first data row)
+    header_row_indices = []
+    first_data_row_idx = None
+    for row_idx in sorted(cells_by_row.keys()):
+        if row_idx < header_start_row_idx:
+            continue
+        row_texts = [c.text for c in cells_by_row[row_idx]]
+        if any(compiled_re.match(t) for t in row_texts):
+            first_data_row_idx = row_idx
+            break
+        header_row_indices.append(row_idx)
+
+    if not header_row_indices:
+        raise ValueError("제목행 그룹을 찾을 수 없습니다.")
+    if first_data_row_idx is None:
+        raise ValueError("첫 번째 데이터 행을 찾을 수 없습니다.")
+
+    # Column zones from header cells only
+    header_cells = [c for c in page_cells if c.row_index in header_row_indices]
+    zones = _compute_x_zones(header_cells, x_gap=20.0)
+
+    # Find date column x for anchor detection
+    date_header_x = next(
+        (c.x for c in header_cells if data_start_keyword in c.text), None
+    )
+
+    # Collect sample transaction groups
+    sample_groups = []
+    current_group = []
+
+    for pi, p_cells in enumerate(all_page_cells):
+        rc = defaultdict(list)
+        for c in p_cells:
+            rc[c.row_index].append(c)
+
+        for row_idx in sorted(rc.keys()):
+            if pi == header_start_page and row_idx < first_data_row_idx:
+                continue
+            row = sorted(rc[row_idx], key=lambda c: c.x)
+            row_texts = [c.text for c in row]
+
+            is_anchor = False
+            if date_header_x is not None:
+                closest = min(row, key=lambda c: abs(c.x - date_header_x), default=None)
+                if closest and compiled_re.match(closest.text):
+                    is_anchor = True
+            if not is_anchor and any(compiled_re.match(t) for t in row_texts):
+                is_anchor = True
+
+            if is_anchor:
+                if current_group:
+                    sample_groups.append(current_group)
+                if len(sample_groups) >= 5:
+                    break
+                current_group = [row]
+            elif current_group:
+                current_group.append(row)
+
+        if len(sample_groups) >= 5:
+            break
+
+    if current_group:
+        sample_groups.append(current_group)
+
+    # Build workbook
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "PDF"
     meta = wb.create_sheet(META_SHEET)
-    fields = wb.create_sheet(FIELDS_SHEET)
+    fields_ws = wb.create_sheet(FIELDS_SHEET)
+    config_ws = wb.create_sheet("_config")
 
-    ws["A1"] = "PDF 원본 셀"
-    ws["A1"].font = Font(bold=True)
-    ws["A2"] = "필드로 지정할 셀은 노란색, 무시할 키워드는 회색으로 표시한 뒤 업로드하세요."
-    ws["A2"].alignment = Alignment(wrap_text=True)
+    ws["A1"] = "제목행(회색) 셀을 노란색으로 칠해 필드를 지정하세요. 무시할 키워드는 회색으로 칠하세요."
+    ws["A1"].alignment = Alignment(wrap_text=True)
 
-    meta.append(["sheet", "excel_row", "excel_col", "page_index", "row_index", "column_index", "x", "y", "text"])
+    meta.append([
+        "sheet", "excel_row", "excel_col",
+        "page_index", "row_index", "column_index",
+        "x", "y", "text", "is_header_row",
+    ])
 
-    excel_row = 4
+    config_ws.append(["date_format", detected_format or ""])
+    config_ws.append(["data_start_keyword", data_start_keyword])
+    config_ws.sheet_state = "hidden"
+
+    HEADER_BG = "D9D9D9"
+    SAMPLE_FILLS = ["FFFFFF", "EBF3FB"]
+
+    excel_row = 3
     max_col = 1
-    for page_index, page in enumerate(pages[:max_pages]):
-        ws.cell(excel_row, 1, f"Page {page_index + 1}")
-        ws.cell(excel_row, 1).font = Font(bold=True)
+
+    for row_idx in header_row_indices:
+        for c in sorted(cells_by_row[row_idx], key=lambda cell: cell.x):
+            excel_col = _find_zone_index(c.x, zones) + 1
+            max_col = max(max_col, excel_col)
+            cell = ws.cell(excel_row, excel_col, c.text)
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill(fill_type="solid", fgColor=HEADER_BG)
+            meta.append([
+                ws.title, excel_row, excel_col,
+                c.page_index, c.row_index, c.column_index,
+                c.x, c.y, c.text, True,
+            ])
         excel_row += 1
 
-        page_cells = _extract_page_cells(page, page_index)
-        zones = _compute_x_zones(page_cells)
-        current_row = None
-        for cell_info in page_cells:
-            if current_row is None:
-                current_row = cell_info.row_index
-            if cell_info.row_index != current_row:
-                excel_row += 1
-                current_row = cell_info.row_index
-
-            excel_col = _find_zone_index(cell_info.x, zones) + 1
-            max_col = max(max_col, excel_col)
-            ws.cell(excel_row, excel_col, cell_info.text)
-            meta.append([
-                ws.title,
-                excel_row,
-                excel_col,
-                cell_info.page_index,
-                cell_info.row_index,
-                cell_info.column_index,
-                cell_info.x,
-                cell_info.y,
-                cell_info.text,
-            ])
-        excel_row += 2
+    for group_idx, group in enumerate(sample_groups):
+        bg = SAMPLE_FILLS[group_idx % 2]
+        fill = PatternFill(fill_type="solid", fgColor=bg)
+        for row in group:
+            for c in row:
+                excel_col = _find_zone_index(c.x, zones) + 1
+                max_col = max(max_col, excel_col)
+                ws.cell(excel_row, excel_col, c.text).fill = fill
+                meta.append([
+                    ws.title, excel_row, excel_col,
+                    c.page_index, c.row_index, c.column_index,
+                    c.x, c.y, c.text, False,
+                ])
+            excel_row += 1
+        excel_row += 1
 
     for col in range(1, max_col + 1):
         ws.column_dimensions[get_column_letter(col)].width = 14
 
-    fields.append(["필드 키", "필드명"])
-    fields["A1"].font = Font(bold=True)
-    fields["B1"].font = Font(bold=True)
+    fields_ws.append(["필드 키", "필드명"])
+    fields_ws["A1"].font = Font(bold=True)
+    fields_ws["B1"].font = Font(bold=True)
     for key, label in STANDARD_FIELDS.items():
-        fields.append([key, label])
-    fields.column_dimensions["A"].width = 16
-    fields.column_dimensions["B"].width = 16
+        fields_ws.append([key, label])
+    fields_ws.column_dimensions["A"].width = 16
+    fields_ws.column_dimensions["B"].width = 16
 
     meta.sheet_state = "hidden"
     wb.save(output_path)
+    return detected_format
 
 
 def read_parser_template(path: str | Path) -> TemplateAnnotations:

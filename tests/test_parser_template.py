@@ -119,3 +119,139 @@ def test_detect_date_format_slash():
 def test_detect_date_format_returns_none():
     from core.parser_template import _detect_date_format
     assert _detect_date_format(["계좌번호", "ABC", "테스트"]) is None
+
+
+def test_export_parser_template_creates_header_rows_with_is_header_flag(tmp_path):
+    """Header group cells must have is_header_row=True in metadata."""
+    import fitz
+    import openpyxl
+    from unittest.mock import MagicMock, patch
+    from core.parser_template import META_SHEET, export_parser_template, TemplateCell
+
+    fake_cells = [
+        TemplateCell(0, 0, 0, x=50.0,  y=10.0, text="거래일자"),
+        TemplateCell(0, 0, 1, x=200.0, y=10.0, text="종목명"),
+        TemplateCell(0, 1, 0, x=50.0,  y=20.0, text="2024/01/01"),
+        TemplateCell(0, 1, 1, x=200.0, y=20.0, text="삼성전자"),
+        TemplateCell(0, 2, 0, x=50.0,  y=30.0, text="2024/01/02"),
+        TemplateCell(0, 2, 1, x=200.0, y=30.0, text="카카오"),
+    ]
+
+    mock_page = MagicMock(spec=fitz.Page)
+    out = tmp_path / "out.xlsx"
+
+    with patch("core.parser_template._extract_page_cells", return_value=fake_cells):
+        result = export_parser_template(
+            [mock_page], out,
+            data_start_keyword="거래일자",
+            date_re=r"\d{4}/\d{2}/\d{2}",
+        )
+
+    wb = openpyxl.load_workbook(out)
+    meta = wb[META_SHEET]
+    rows = list(meta.iter_rows(min_row=2, values_only=True))
+
+    header_rows = [r for r in rows if r[9] is True]
+    data_rows   = [r for r in rows if r[9] is False]
+
+    assert len(header_rows) == 2   # 거래일자, 종목명
+    assert len(data_rows)   >= 2   # sample data rows
+
+    header_texts = {r[8] for r in header_rows}
+    assert "거래일자" in header_texts
+    assert "종목명" in header_texts
+
+
+def test_export_parser_template_excludes_pre_header_rows(tmp_path):
+    """Rows before data_start_keyword must not appear in Excel."""
+    import fitz
+    import openpyxl
+    from unittest.mock import MagicMock, patch
+    from core.parser_template import META_SHEET, export_parser_template, TemplateCell
+
+    fake_cells = [
+        TemplateCell(0, 0, 0, x=50.0, y=5.0,  text="계좌번호: 1234-5678"),
+        TemplateCell(0, 1, 0, x=50.0, y=15.0, text="거래일자"),
+        TemplateCell(0, 1, 1, x=200.0,y=15.0, text="종목명"),
+        TemplateCell(0, 2, 0, x=50.0, y=25.0, text="2024/01/01"),
+        TemplateCell(0, 2, 1, x=200.0,y=25.0, text="삼성전자"),
+    ]
+    mock_page = MagicMock(spec=fitz.Page)
+    out = tmp_path / "out.xlsx"
+
+    with patch("core.parser_template._extract_page_cells", return_value=fake_cells):
+        export_parser_template(
+            [mock_page], out,
+            data_start_keyword="거래일자",
+            date_re=r"\d{4}/\d{2}/\d{2}",
+        )
+
+    wb = openpyxl.load_workbook(out)
+    meta = wb[META_SHEET]
+    all_texts = {r[8] for r in meta.iter_rows(min_row=2, values_only=True) if r[8]}
+    assert "계좌번호: 1234-5678" not in all_texts
+
+
+def test_export_parser_template_writes_config_sheet(tmp_path):
+    """_config sheet must store date_format and data_start_keyword."""
+    import fitz
+    import openpyxl
+    from unittest.mock import MagicMock, patch
+    from core.parser_template import export_parser_template, TemplateCell
+
+    fake_cells = [
+        TemplateCell(0, 0, 0, x=50.0, y=10.0, text="거래일자"),
+        TemplateCell(0, 0, 1, x=200.0,y=10.0, text="종목명"),
+        TemplateCell(0, 1, 0, x=50.0, y=20.0, text="2024/01/01"),
+        TemplateCell(0, 1, 1, x=200.0,y=20.0, text="삼성전자"),
+    ]
+    mock_page = MagicMock(spec=fitz.Page)
+    out = tmp_path / "out.xlsx"
+
+    with patch("core.parser_template._extract_page_cells", return_value=fake_cells):
+        export_parser_template(
+            [mock_page], out,
+            data_start_keyword="거래일자",
+            date_re=r"\d{4}/\d{2}/\d{2}",
+        )
+
+    wb = openpyxl.load_workbook(out)
+    assert "_config" in wb.sheetnames
+    config = {r[0]: r[1] for r in wb["_config"].iter_rows(values_only=True) if r[0]}
+    assert config["data_start_keyword"] == "거래일자"
+
+
+def test_export_parser_template_autodetects_date_format(tmp_path):
+    """When date_re is None, auto-detection must succeed and return format string."""
+    import fitz
+    from unittest.mock import MagicMock, patch
+    from core.parser_template import export_parser_template, TemplateCell
+
+    fake_cells = [
+        TemplateCell(0, 0, 0, x=50.0, y=10.0, text="거래일자"),
+        TemplateCell(0, 1, 0, x=50.0, y=20.0, text="2024-01-01"),
+        TemplateCell(0, 1, 1, x=200.0,y=20.0, text="삼성전자"),
+    ]
+    mock_page = MagicMock(spec=fitz.Page)
+    out = tmp_path / "out.xlsx"
+
+    with patch("core.parser_template._extract_page_cells", return_value=fake_cells):
+        fmt = export_parser_template([mock_page], out, data_start_keyword="거래일자")
+
+    assert fmt == "yyyy-mm-dd"
+
+
+def test_export_parser_template_raises_when_keyword_not_found(tmp_path):
+    import fitz
+    from unittest.mock import MagicMock, patch
+    from core.parser_template import export_parser_template, TemplateCell
+    import pytest
+
+    fake_cells = [TemplateCell(0, 0, 0, x=50.0, y=10.0, text="전혀다른내용")]
+    mock_page = MagicMock(spec=fitz.Page)
+    out = tmp_path / "out.xlsx"
+
+    with patch("core.parser_template._extract_page_cells", return_value=fake_cells):
+        with pytest.raises(ValueError, match="거래일자"):
+            export_parser_template([mock_page], out, data_start_keyword="거래일자",
+                                   date_re=r"\d{4}/\d{2}/\d{2}")
