@@ -100,6 +100,115 @@ def test_load_ignores_unknown_fields_and_keeps_old_configs_out_of_runtime(tmp_pa
     assert "구버전증권" not in runtime_names
 
 
+def test_load_coerces_invalid_standard_fields_to_none(tmp_path, monkeypatch):
+    from core import parser_registry
+
+    monkeypatch.setattr(parser_registry, "_get_data_dir", lambda: tmp_path)
+    configs = [
+        {
+            "broker_name": "새증권",
+            "detection_keywords": ["새"],
+            "layout_type": "coordinate_template",
+            "start_page": 0,
+            "cell_mappings": [
+                {
+                    "display_name": "종목명",
+                    "standard_field": "name",
+                    "column_index": 0,
+                    "x_min": 0.0,
+                    "x_max": 100.0,
+                    "template_y_min": 0.0,
+                    "template_y_max": 20.0,
+                },
+                {
+                    "display_name": "거래종류",
+                    "standard_field": "type",
+                    "column_index": 1,
+                    "x_min": 100.0,
+                    "x_max": 200.0,
+                    "template_y_min": 0.0,
+                    "template_y_max": 20.0,
+                },
+            ],
+        }
+    ]
+    (tmp_path / "parsers.json").write_text(
+        json.dumps(configs, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    loaded = parser_registry.load()
+
+    assert loaded[0].cell_mappings[0].standard_field is None
+    assert loaded[0].cell_mappings[1].standard_field == "type"
+
+
+def test_coordinate_template_joins_duplicate_display_and_standard_fields():
+    from core.parser_registry import CellMapping, DynamicParserConfig, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        layout_type="coordinate_template",
+        start_page=0,
+        data_start_y=100.0,
+        data_end_y=120.0,
+        template_height=20.0,
+        column_xs=[100.0, 200.0],
+        template_row_ys_per_col={},
+        cell_mappings=[
+            CellMapping("종목명", None, 0, 0.0, 100.0, 0.0, 10.0),
+            CellMapping("종목명", None, 0, 0.0, 100.0, 10.0, 20.0),
+            CellMapping("거래종류1", "type", 1, 100.0, 200.0, 0.0, 10.0),
+            CellMapping("거래종류2", "type", 1, 100.0, 200.0, 10.0, 20.0),
+        ],
+    )
+    words = [
+        (10.0, 102.0, 40.0, 106.0, "삼성", 0, 0, 0),
+        (10.0, 112.0, 40.0, 116.0, "전자", 0, 0, 1),
+        (110.0, 102.0, 140.0, 106.0, "매수", 0, 0, 2),
+        (110.0, 112.0, 140.0, 116.0, "입금", 0, 0, 3),
+    ]
+
+    txns, raws = build_class(cfg)().parse([_mock_page(words)])
+
+    assert raws == [
+        {"종목명": "삼성 전자", "거래종류1": "매수", "거래종류2": "입금"},
+    ]
+    assert txns[0].type == "매수 입금"
+
+
+def test_coordinate_template_uses_half_open_cell_bounds():
+    from core.parser_registry import CellMapping, DynamicParserConfig, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        layout_type="coordinate_template",
+        start_page=0,
+        data_start_y=100.0,
+        data_end_y=120.0,
+        template_height=20.0,
+        column_xs=[100.0],
+        template_row_ys_per_col={0: [10.0]},
+        cell_mappings=[
+            CellMapping("왼쪽위", None, 0, 0.0, 100.0, 0.0, 10.0),
+            CellMapping("오른쪽위", None, 1, 100.0, 200.0, 0.0, 10.0),
+            CellMapping("왼쪽아래", None, 0, 0.0, 100.0, 10.0, 20.0),
+        ],
+    )
+    words = [
+        (95.0, 102.0, 105.0, 106.0, "경계X", 0, 0, 0),
+        (10.0, 108.0, 40.0, 112.0, "경계Y", 0, 0, 1),
+    ]
+
+    _txns, raws = build_class(cfg)().parse([_mock_page(words)])
+
+    assert raws == [
+        {"왼쪽위": "", "오른쪽위": "경계X", "왼쪽아래": "경계Y"},
+    ]
+
+
 def test_coordinate_template_parses_repeated_rows_with_display_names():
     from core.parser_registry import CellMapping, DynamicParserConfig, build_class
 

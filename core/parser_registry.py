@@ -55,6 +55,8 @@ def _load_cell_mappings(raw_mappings: Any) -> list[CellMapping]:
         if not isinstance(item, dict):
             continue
         data = {k: v for k, v in item.items() if k in valid}
+        if data.get("standard_field") not in VALID_STANDARD_FIELDS:
+            data["standard_field"] = None
         try:
             mappings.append(CellMapping(**data))
         except TypeError:
@@ -131,12 +133,6 @@ def build_class(config: DynamicParserConfig) -> type:
 
     _cfg = config
 
-    def _standard_value(raw: dict[str, str], standard_field: str) -> str:
-        for mapping in _cfg.cell_mappings:
-            if mapping.standard_field == standard_field:
-                return raw.get(mapping.display_name, "")
-        return ""
-
     def _words_for_page(page: Any) -> list[tuple[float, float, float, float, str]]:
         words = page.get_text("words")
         normalized = []
@@ -168,7 +164,7 @@ def build_class(config: DynamicParserConfig) -> type:
         for x0, y0, x1, y1, text in words:
             cx = (x0 + x1) / 2.0
             cy = (y0 + y1) / 2.0
-            if mapping.x_min <= cx <= mapping.x_max and y_min <= cy <= y_max:
+            if mapping.x_min <= cx < mapping.x_max and y_min <= cy < y_max:
                 selected.append((cy, cx, text))
         return " ".join(
             text
@@ -189,17 +185,27 @@ def build_class(config: DynamicParserConfig) -> type:
             words = _words_for_page(page)
             slot_y = _cfg.data_start_y
             while slot_y < _cfg.data_end_y:
-                raw = {
-                    mapping.display_name: _extract_cell(words, mapping, slot_y)
-                    for mapping in _cfg.cell_mappings
-                }
+                raw = {mapping.display_name: "" for mapping in _cfg.cell_mappings}
+                standard_values = {field_name: [] for field_name in VALID_STANDARD_FIELDS}
+
+                for mapping in _cfg.cell_mappings:
+                    value = _extract_cell(words, mapping, slot_y)
+                    if value:
+                        raw[mapping.display_name] = (
+                            f"{raw[mapping.display_name]} {value}"
+                            if raw[mapping.display_name]
+                            else value
+                        )
+                    if mapping.standard_field in VALID_STANDARD_FIELDS and value:
+                        standard_values[mapping.standard_field].append(value)
+
                 if any(value for value in raw.values()):
                     transactions.append(
                         Transaction(
-                            date=_standard_value(raw, "date"),
-                            type=_standard_value(raw, "type"),
-                            amount=_parse_num(_standard_value(raw, "amount")),
-                            balance=_parse_num(_standard_value(raw, "balance")),
+                            date=" ".join(standard_values["date"]),
+                            type=" ".join(standard_values["type"]),
+                            amount=_parse_num(" ".join(standard_values["amount"])),
+                            balance=_parse_num(" ".join(standard_values["balance"])),
                             broker=_cfg.broker_name,
                             raw=raw,
                         )
