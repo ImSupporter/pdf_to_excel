@@ -249,7 +249,7 @@ class ZoneEditorWidget(QWidget):
             menu.addAction("삭제", lambda: self._delete_hline(col, idx))
         # 영역 마커(hs/he/ds/de)는 삭제 불가
         if menu.actions():
-            menu.exec(event.globalPosition().toPoint())
+            menu.exec(event.globalPos())
 
     # ── 내부 헬퍼 ────────────────────────────────────────────────────
 
@@ -273,7 +273,13 @@ class ZoneEditorWidget(QWidget):
                 return ("v", i)
 
         # 파란 가로선
+        sorted_v = sorted(self._vlines)
+        bounds = [0] + [self._s(x) for x in sorted_v] + [self._s(self._page_w)]
         for col_idx, ys in self._hlines.items():
+            if col_idx >= len(bounds) - 1:
+                continue
+            if not bounds[col_idx] - hit <= sx <= bounds[col_idx + 1] + hit:
+                continue
             for j, vy in enumerate(ys):
                 if abs(sy - self._s(vy)) <= hit:
                     return ("h", col_idx, j)
