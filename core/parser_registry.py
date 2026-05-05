@@ -43,9 +43,8 @@ def load() -> list[DynamicParserConfig]:
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
-    import dataclasses as _dc
-    valid_fm = {f.name for f in _dc.fields(FieldMapping)}
-    valid_cfg = {f.name for f in _dc.fields(DynamicParserConfig)}
+    valid_fm = {f.name for f in dataclasses.fields(FieldMapping)}
+    valid_cfg = {f.name for f in dataclasses.fields(DynamicParserConfig)}
 
     configs = []
     for item in data:
