@@ -24,7 +24,7 @@ def _split_by_ys(
 
 
 def _column_strips(column_xs: list[float], page_width: float) -> list[tuple[float, float]]:
-    xs = sorted(x for x in column_xs if 0.0 < x < page_width)
+    xs = sorted({x for x in column_xs if 0.0 < x < page_width})
     boundaries = [0.0] + xs + [page_width]
     return [(boundaries[i], boundaries[i + 1]) for i in range(len(boundaries) - 1)]
 

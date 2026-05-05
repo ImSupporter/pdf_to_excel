@@ -24,6 +24,25 @@ def test_split_by_ys_deduplicates_splits():
     ]
 
 
+def test_build_cell_mappings_deduplicates_column_xs():
+    from core.zone_spec import ZoneSpec, build_cell_mappings
+
+    spec = ZoneSpec(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        start_page=0,
+        column_xs=[100.0, 100.0],
+        template_row_ys_per_col={},
+        data_start_y=0.0,
+        data_end_y=20.0,
+        template_height=20.0,
+    )
+    cells = build_cell_mappings(spec, page_width=200.0)
+    assert len(cells) == 2
+    assert cells[0].x_max == 100.0
+    assert cells[1].x_min == 100.0
+
+
 def test_build_cell_mappings_supports_different_y_slot_counts_per_column():
     from core.zone_spec import ZoneSpec, build_cell_mappings
 
