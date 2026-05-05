@@ -253,7 +253,7 @@ class ParserBuilderDialog(QDialog):
             card = QWidget()
             card.setStyleSheet(
                 "background:#eff6ff;border:1px solid #bfdbfe;"
-                "border-radius:3px;padding:2px;"
+                "border-radius:3px;padding:2px;color:#000;"
             )
             cl = QVBoxLayout(card)
             cl.setContentsMargins(6, 4, 6, 4)
