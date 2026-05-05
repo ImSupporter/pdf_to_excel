@@ -13,6 +13,11 @@ class FieldMapping:
     row_offset: int = 0     # table layout: row offset within tx group (0=anchor)
     y_min: int = 0          # rotated layout: y_top minimum
     y_max: int = 0          # rotated layout: y_top maximum
+    page_index: int = 0     # template layout: source page index used as mapping hint
+    row_index: int = 0      # template layout: source row index used as mapping hint
+    x: float = 0.0          # template layout: source x coordinate hint
+    y: float = 0.0          # template layout: source y coordinate hint
+    source_text: str = ""   # template layout: original/edited template cell text
 
 
 @dataclass
@@ -63,6 +68,7 @@ def build_class(config: "DynamicParserConfig") -> type:
     from parsers.base import BaseParser
     from core.models import Transaction
     from core.pdf_utils import get_page_rows
+    from core.parser_template import infer_standard_field
 
     _cfg = config
     _date_re = _re.compile(config.date_re)
@@ -81,7 +87,7 @@ def build_class(config: "DynamicParserConfig") -> type:
             if page_idx < _cfg.start_page:
                 continue
 
-            if _cfg.layout_type == "table":
+            if _cfg.layout_type in {"table", "template"}:
                 all_rows = list(get_page_rows(page, y_tolerance=4.0))
                 i = 0
                 while i < len(all_rows):
@@ -106,17 +112,21 @@ def build_class(config: "DynamicParserConfig") -> type:
                         grp = groups[fm.row_offset] if fm.row_offset < len(groups) else []
                         raw[fm.standard_field] = grp[fm.column_index] if fm.column_index < len(grp) else ""
 
+                    normalized = {
+                        infer_standard_field(key) or key: value
+                        for key, value in raw.items()
+                    }
                     transactions.append(Transaction(
-                        date=raw.get("date", ""),
-                        type=raw.get("type", ""),
-                        ticker=raw.get("ticker", ""),
-                        name=raw.get("name", ""),
-                        quantity=_parse_num(raw.get("quantity", "")),
-                        price=_parse_num(raw.get("price", "")),
-                        amount=_parse_num(raw.get("amount", "")),
-                        fee=_parse_num(raw.get("fee", "")),
-                        tax=_parse_num(raw.get("tax", "")),
-                        balance=_parse_num(raw.get("balance", "")),
+                        date=normalized.get("date", ""),
+                        type=normalized.get("type", ""),
+                        ticker=normalized.get("ticker", ""),
+                        name=normalized.get("name", ""),
+                        quantity=_parse_num(normalized.get("quantity", "")),
+                        price=_parse_num(normalized.get("price", "")),
+                        amount=_parse_num(normalized.get("amount", "")),
+                        fee=_parse_num(normalized.get("fee", "")),
+                        tax=_parse_num(normalized.get("tax", "")),
+                        balance=_parse_num(normalized.get("balance", "")),
                         broker=_cfg.broker_name,
                         raw=raw,
                     ))
