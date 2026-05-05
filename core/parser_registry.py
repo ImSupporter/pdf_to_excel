@@ -137,6 +137,11 @@ def build_class(config: DynamicParserConfig) -> type:
 
     def _words_for_page(page: Any) -> list[tuple[float, float, float, float, str]]:
         words = page.get_text("words")
+        if not words:
+            from core.ocr import ocr_page_to_words
+
+            words = ocr_page_to_words(page)
+
         normalized = []
         for word in words:
             if len(word) < 5:

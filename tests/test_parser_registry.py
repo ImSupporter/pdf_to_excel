@@ -1,5 +1,5 @@
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 
 def _mock_page(words, width=400.0, height=500.0):
@@ -312,3 +312,36 @@ def test_coordinate_template_skips_only_completely_empty_repeated_slot():
     ]
     assert txns[1].date == ""
     assert txns[1].balance == 9999.0
+
+
+def test_coordinate_template_falls_back_to_ocr_words_when_pdf_has_no_text_words():
+    from core.parser_registry import CellMapping, DynamicParserConfig, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        layout_type="coordinate_template",
+        start_page=0,
+        data_start_y=100.0,
+        data_end_y=120.0,
+        template_height=20.0,
+        column_xs=[100.0],
+        template_row_ys_per_col={},
+        cell_mappings=[
+            CellMapping("사용자일자", "date", 0, 0.0, 100.0, 0.0, 20.0),
+            CellMapping("사용자금액", "amount", 1, 100.0, 200.0, 0.0, 20.0),
+        ],
+    )
+    page = _mock_page([])
+    ocr_words = [
+        (10.0, 102.0, 70.0, 110.0, "2026/05/01"),
+        (110.0, 102.0, 180.0, 110.0, "1,000"),
+    ]
+
+    with patch("core.ocr.ocr_page_to_words", return_value=ocr_words) as ocr:
+        txns, raws = build_class(cfg)().parse([page])
+
+    ocr.assert_called_once_with(page)
+    assert raws == [{"사용자일자": "2026/05/01", "사용자금액": "1,000"}]
+    assert txns[0].date == "2026/05/01"
+    assert txns[0].amount == 1000.0
