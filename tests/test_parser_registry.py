@@ -6,10 +6,11 @@ import pytest
 
 def test_field_mapping_roundtrip():
     from core.parser_registry import FieldMapping
-    fm = FieldMapping(standard_field="date", row_offset=0, x=50.0)
+    fm = FieldMapping(standard_field="date", row_offset=0, x_min=10.0, x_max=90.0)
     assert fm.standard_field == "date"
     assert fm.row_offset == 0
-    assert fm.x == 50.0
+    assert fm.x_min == 10.0
+    assert fm.x_max == 90.0
 
 
 def test_dynamic_parser_config_roundtrip(tmp_path, monkeypatch):
@@ -26,8 +27,8 @@ def test_dynamic_parser_config_roundtrip(tmp_path, monkeypatch):
         start_page=0,
         skip_keywords=["합계"],
         field_mappings=[
-            FieldMapping(standard_field="date", row_offset=0, x=50.0),
-            FieldMapping(standard_field="amount", row_offset=0, x=300.0),
+            FieldMapping(standard_field="date", row_offset=0, x_min=0.0, x_max=100.0),
+            FieldMapping(standard_field="amount", row_offset=0, x_min=250.0, x_max=350.0),
         ],
     )
     parser_registry.save([cfg])
@@ -37,7 +38,8 @@ def test_dynamic_parser_config_roundtrip(tmp_path, monkeypatch):
     assert loaded[0].broker_name == "테스트증권"
     assert loaded[0].detection_keywords == ["테스트", "거래내역"]
     assert len(loaded[0].field_mappings) == 2
-    assert loaded[0].field_mappings[1].x == 300.0
+    assert loaded[0].field_mappings[1].x_min == 250.0
+    assert loaded[0].field_mappings[1].x_max == 350.0
 
 
 def test_load_returns_empty_when_no_file(tmp_path, monkeypatch):
@@ -74,7 +76,8 @@ def test_load_ignores_unknown_fields_in_old_json(tmp_path, monkeypatch):
     loaded = parser_registry.load()
     assert len(loaded) == 1
     assert loaded[0].broker_name == "구버전증권"
-    assert loaded[0].field_mappings[0].x == 50.0
+    assert loaded[0].field_mappings[0].x_min == 0.0
+    assert loaded[0].field_mappings[0].x_max == 100.0
 
 
 def test_build_class_returns_base_parser_subclass():
@@ -89,7 +92,7 @@ def test_build_class_returns_base_parser_subclass():
         start_page=0,
         skip_keywords=[],
         field_mappings=[
-            FieldMapping(standard_field="date", row_offset=0, x=50.0),
+            FieldMapping(standard_field="date", row_offset=0, x_min=0.0, x_max=100.0),
         ],
     )
     cls = build_class(cfg)
@@ -142,9 +145,9 @@ def test_header_mapped_single_header_parses_two_transactions():
         start_page=0,
         skip_keywords=[],
         field_mappings=[
-            FieldMapping(standard_field="date",   row_offset=0, x=50.0),
-            FieldMapping(standard_field="name",   row_offset=0, x=200.0),
-            FieldMapping(standard_field="amount", row_offset=0, x=350.0),
+            FieldMapping(standard_field="date",   row_offset=0, x_min=0.0,   x_max=100.0),
+            FieldMapping(standard_field="name",   row_offset=0, x_min=150.0, x_max=250.0),
+            FieldMapping(standard_field="amount", row_offset=0, x_min=300.0, x_max=400.0),
         ],
     )
     mock_rows = [
@@ -173,8 +176,8 @@ def test_header_mapped_continuation_row_concatenates():
         start_page=0,
         skip_keywords=[],
         field_mappings=[
-            FieldMapping(standard_field="date", row_offset=0, x=50.0),
-            FieldMapping(standard_field="name", row_offset=0, x=200.0),
+            FieldMapping(standard_field="date", row_offset=0, x_min=0.0,   x_max=100.0),
+            FieldMapping(standard_field="name", row_offset=0, x_min=150.0, x_max=250.0),
         ],
     )
     mock_rows = [
@@ -201,11 +204,11 @@ def test_header_mapped_two_header_rows_separate_fields():
         skip_keywords=[],
         field_mappings=[
             # Header row 0: date@50, type@150
-            FieldMapping(standard_field="date", row_offset=0, x=50.0),
-            FieldMapping(standard_field="type", row_offset=0, x=150.0),
+            FieldMapping(standard_field="date", row_offset=0, x_min=0.0,   x_max=100.0),
+            FieldMapping(standard_field="type", row_offset=0, x_min=100.0, x_max=200.0),
             # Header row 1: name@50, amount@150 (same x — different field by row_offset)
-            FieldMapping(standard_field="name",   row_offset=1, x=50.0),
-            FieldMapping(standard_field="amount", row_offset=1, x=150.0),
+            FieldMapping(standard_field="name",   row_offset=1, x_min=0.0,   x_max=100.0),
+            FieldMapping(standard_field="amount", row_offset=1, x_min=100.0, x_max=200.0),
         ],
     )
     mock_rows = [
@@ -233,8 +236,8 @@ def test_header_mapped_skip_keywords_filter_rows():
         start_page=0,
         skip_keywords=["합계"],
         field_mappings=[
-            FieldMapping(standard_field="date",   row_offset=0, x=50.0),
-            FieldMapping(standard_field="amount", row_offset=0, x=150.0),
+            FieldMapping(standard_field="date",   row_offset=0, x_min=0.0,   x_max=100.0),
+            FieldMapping(standard_field="amount", row_offset=0, x_min=100.0, x_max=200.0),
         ],
     )
     mock_rows = [

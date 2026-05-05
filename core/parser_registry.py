@@ -10,9 +10,10 @@ from pathlib import Path
 class FieldMapping:
     standard_field: str
     row_offset: int = 0
-    x: float = 0.0
-    y_min: float = 0.0   # rotated layout only
-    y_max: float = 0.0   # rotated layout only
+    x_min: float = 0.0   # 컬럼 스트립 왼쪽 경계 (PDF 좌표)
+    x_max: float = 0.0   # 컬럼 스트립 오른쪽 경계 (PDF 좌표)
+    y_min: float = 0.0
+    y_max: float = 0.0
 
 
 @dataclass
@@ -49,10 +50,14 @@ def load() -> list[DynamicParserConfig]:
     configs = []
     for item in data:
         raw_mappings = item.pop("field_mappings", [])
-        mappings = [
-            FieldMapping(**{k: v for k, v in m.items() if k in valid_fm})
-            for m in raw_mappings
-        ]
+        mappings = []
+        for m in raw_mappings:
+            fm_data = {k: v for k, v in m.items() if k in valid_fm}
+            # backward compat: old JSON has x field only → convert to x_min/x_max
+            if "x" in m and "x_min" not in m and "x_max" not in m:
+                fm_data["x_min"] = m["x"] - 50.0
+                fm_data["x_max"] = m["x"] + 50.0
+            mappings.append(FieldMapping(**fm_data))
         cfg_kwargs = {k: v for k, v in item.items() if k in valid_cfg}
         configs.append(DynamicParserConfig(**cfg_kwargs, field_mappings=mappings))
     return configs
@@ -91,9 +96,9 @@ def build_class(config: "DynamicParserConfig") -> type:
         _date_fm = next(
             (fm for fm in _cfg.field_mappings if fm.standard_field == "date"), None
         )
-        _date_x = _date_fm.x if _date_fm else None
+        _date_x_min = _date_fm.x_min if _date_fm else None
+        _date_x_max = _date_fm.x_max if _date_fm else None
         _date_compiled = _re_mod.compile(_cfg.date_re)
-        X_TOLERANCE = 50.0
 
         def _contains_skip(row_cells):
             joined = " ".join(t for _, t in row_cells)
@@ -116,9 +121,9 @@ def build_class(config: "DynamicParserConfig") -> type:
                 current: list[tuple] = []
                 for row_y, row_cells in rows_with_y:
                     is_anchor = False
-                    if _date_x is not None:
-                        closest = min(row_cells, key=lambda c: abs(c[0] - _date_x))
-                        if _date_compiled.match(closest[1]):
+                    if _date_x_min is not None:
+                        date_cells = [c for c in row_cells if _date_x_min <= c[0] <= _date_x_max]
+                        if date_cells and _date_compiled.match(date_cells[0][1]):
                             is_anchor = True
                     if not is_anchor and any(_date_compiled.match(t) for _, t in row_cells):
                         is_anchor = True
@@ -143,10 +148,10 @@ def build_class(config: "DynamicParserConfig") -> type:
                         if not candidates:
                             continue
                         for cell_x, cell_text in row_cells:
-                            best = min(candidates, key=lambda fm: abs(fm.x - cell_x))
-                            if abs(best.x - cell_x) > X_TOLERANCE:
+                            matching = [fm for fm in candidates if fm.x_min <= cell_x <= fm.x_max]
+                            if not matching:
                                 continue
-                            field = best.standard_field
+                            field = matching[0].standard_field
                             raw[field] = (
                                 raw[field] + " " + cell_text if raw.get(field) else cell_text
                             )
