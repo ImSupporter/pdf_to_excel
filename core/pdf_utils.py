@@ -36,6 +36,36 @@ def get_page_rows(page: fitz.Page, y_tolerance: float = 4.0) -> list[list[tuple]
     return rows
 
 
+def get_page_rows_with_y(page: fitz.Page, y_tolerance: float = 4.0) -> list[tuple[float, list[tuple[float, str]]]]:
+    """Like get_page_rows but returns (row_y, [(x, text), ...]) for each row."""
+    if is_scanned_page(page):
+        rows = ocr_page_to_rows(page)
+        return [(float(i) * 15.0, row) for i, row in enumerate(rows)]
+
+    words = page.get_text("words")
+    if not words:
+        return []
+
+    words_sorted = sorted(words, key=lambda w: w[1])
+    result: list[tuple[float, list[tuple[float, str]]]] = []
+    current_row: list[tuple[float, str]] = []
+    current_y: float = words_sorted[0][1]
+
+    for w in words_sorted:
+        if abs(w[1] - current_y) <= y_tolerance:
+            current_row.append((w[0], w[4]))
+        else:
+            if current_row:
+                result.append((current_y, sorted(current_row, key=lambda c: c[0])))
+            current_row = [(w[0], w[4])]
+            current_y = w[1]
+
+    if current_row:
+        result.append((current_y, sorted(current_row, key=lambda c: c[0])))
+
+    return result
+
+
 def merge_row_cells(row: list[tuple], x_gap: float = 8.0) -> list[str]:
     """
     Merge adjacent cells in a row that are within x_gap of each other.
