@@ -8,27 +8,21 @@ from pathlib import Path
 
 @dataclass
 class FieldMapping:
-    standard_field: str  # STANDARD_FIELDS key: "date", "type", "ticker", ...
-    column_index: int = 0   # table layout: column index within row group
-    row_offset: int = 0     # table layout: row offset within tx group (0=anchor)
-    y_min: int = 0          # rotated layout: y_top minimum
-    y_max: int = 0          # rotated layout: y_top maximum
-    page_index: int = 0     # template layout: source page index used as mapping hint
-    row_index: int = 0      # template layout: source row index used as mapping hint
-    x: float = 0.0          # template layout: source x coordinate hint
-    y: float = 0.0          # template layout: source y coordinate hint
-    source_text: str = ""   # template layout: original/edited template cell text
+    standard_field: str
+    row_offset: int = 0
+    x: float = 0.0
+    y_min: float = 0.0   # rotated layout only
+    y_max: float = 0.0   # rotated layout only
 
 
 @dataclass
 class DynamicParserConfig:
     broker_name: str
     detection_keywords: list[str]
-    date_re: str                    # raw regex string
-    layout_type: str                # "table" | "rotated"
-    start_page: int                 # page index to start parsing from
-    rows_per_tx: int                # rows per transaction (table layout only)
-    skip_keywords: list[str]        # row skip keywords (table layout only)
+    date_re: str
+    layout_type: str           # "header_mapped" | "rotated"
+    start_page: int
+    skip_keywords: list[str]
     field_mappings: list[FieldMapping] = field(default_factory=list)
 
 
@@ -48,10 +42,20 @@ def load() -> list[DynamicParserConfig]:
         return []
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
+
+    import dataclasses as _dc
+    valid_fm = {f.name for f in _dc.fields(FieldMapping)}
+    valid_cfg = {f.name for f in _dc.fields(DynamicParserConfig)}
+
     configs = []
     for item in data:
-        mappings = [FieldMapping(**m) for m in item.pop("field_mappings", [])]
-        configs.append(DynamicParserConfig(**item, field_mappings=mappings))
+        raw_mappings = item.pop("field_mappings", [])
+        mappings = [
+            FieldMapping(**{k: v for k, v in m.items() if k in valid_fm})
+            for m in raw_mappings
+        ]
+        cfg_kwargs = {k: v for k, v in item.items() if k in valid_cfg}
+        configs.append(DynamicParserConfig(**cfg_kwargs, field_mappings=mappings))
     return configs
 
 
@@ -83,12 +87,25 @@ def build_class(config: "DynamicParserConfig") -> type:
         transactions: list[Transaction] = []
         raw_rows: list[dict] = []
 
+        _anchor_fm_y: float = min(
+            (getattr(fm, "y", 0.0) for fm in _cfg.field_mappings if fm.row_offset == 0),
+            default=0.0,
+        )
+
         for page_idx, page in enumerate(pages):
             if page_idx < _cfg.start_page:
                 continue
 
             if _cfg.layout_type in {"table", "template"}:
-                all_rows = list(get_page_rows(page, y_tolerance=4.0))
+                if _cfg.layout_type == "template":
+                    from core.pdf_utils import get_page_rows_with_y
+                    rows_with_y = list(get_page_rows_with_y(page, y_tolerance=4.0))
+                    row_ys = [ry for ry, _ in rows_with_y]
+                    all_rows = [cells for _, cells in rows_with_y]
+                else:
+                    all_rows = list(get_page_rows(page, y_tolerance=4.0))
+                    row_ys = []
+
                 i = 0
                 while i < len(all_rows):
                     anchor_texts = [cell[1] for cell in all_rows[i]]
@@ -102,11 +119,17 @@ def build_class(config: "DynamicParserConfig") -> type:
                         i += 1
                         continue
 
+                    _rows_per_tx = getattr(_cfg, "rows_per_tx", 1)
                     raw: dict = {}
                     if _cfg.layout_type == "template":
+                        anchor_actual_y = row_ys[i]
                         for fm in _cfg.field_mappings:
-                            row_idx = i + fm.row_offset
-                            row = all_rows[row_idx] if row_idx < len(all_rows) else []
+                            target_y = anchor_actual_y + (getattr(fm, "y", 0.0) - _anchor_fm_y)
+                            closest_row_idx = min(
+                                range(len(row_ys)),
+                                key=lambda j, _ty=target_y: abs(row_ys[j] - _ty),
+                            )
+                            row = all_rows[closest_row_idx]
                             if row:
                                 closest = min(row, key=lambda c, _x=fm.x: abs(c[0] - _x))
                                 raw[fm.standard_field] = closest[1]
@@ -114,12 +137,13 @@ def build_class(config: "DynamicParserConfig") -> type:
                                 raw[fm.standard_field] = ""
                     else:
                         groups: list[list[str]] = [anchor_texts]
-                        for offset in range(1, _cfg.rows_per_tx):
+                        for offset in range(1, _rows_per_tx):
                             j = i + offset
                             groups.append([cell[1] for cell in all_rows[j]] if j < len(all_rows) else [])
                         for fm in _cfg.field_mappings:
                             grp = groups[fm.row_offset] if fm.row_offset < len(groups) else []
-                            raw[fm.standard_field] = grp[fm.column_index] if fm.column_index < len(grp) else ""
+                            _col_idx = getattr(fm, "column_index", 0)
+                            raw[fm.standard_field] = grp[_col_idx] if _col_idx < len(grp) else ""
 
                     normalized = {
                         infer_standard_field(key) or key: value
@@ -140,7 +164,7 @@ def build_class(config: "DynamicParserConfig") -> type:
                         raw=raw,
                     ))
                     raw_rows.append(raw)
-                    i += _cfg.rows_per_tx
+                    i += _rows_per_tx
 
             elif _cfg.layout_type == "rotated":
                 items: list[dict] = []

@@ -34,9 +34,8 @@ def test_detects_dynamic_parser(tmp_path, monkeypatch):
         broker_name="테스트다이나믹",
         detection_keywords=["UNIQUE_KEYWORD_XYZ"],
         date_re=r"^\d{4}/\d{2}/\d{2}$",
-        layout_type="table",
+        layout_type="header_mapped",
         start_page=0,
-        rows_per_tx=1,
         skip_keywords=[],
         field_mappings=[],
     )
