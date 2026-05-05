@@ -197,6 +197,69 @@ def test_header_mapped_single_header_parses_two_transactions():
     assert txns[1].date == "2024/01/02"
 
 
+def test_header_mapped_preserves_original_field_names_in_raw():
+    from unittest.mock import patch, MagicMock
+    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        date_re=r"\d{4}/\d{2}/\d{2}",
+        layout_type="header_mapped",
+        start_page=0,
+        skip_keywords=[],
+        field_mappings=[
+            FieldMapping(standard_field="거래일자", row_offset=0, x_min=0.0,   x_max=100.0),
+            FieldMapping(standard_field="종목명",   row_offset=0, x_min=150.0, x_max=250.0),
+            FieldMapping(standard_field="거래금액", row_offset=0, x_min=300.0, x_max=400.0),
+        ],
+    )
+    mock_rows = [
+        (10.0, [(50.0, "2024/01/01"), (200.0, "삼성전자"), (350.0, "1000000")]),
+    ]
+    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
+        txns, raws = build_class(cfg)().parse([MagicMock()])
+
+    assert raws == [{
+        "거래일자": "2024/01/01",
+        "종목명": "삼성전자",
+        "거래금액": "1000000",
+    }]
+    assert txns[0].date == "2024/01/01"
+    assert txns[0].name == "삼성전자"
+    assert txns[0].amount == 1000000.0
+
+
+def test_header_mapped_raw_includes_configured_fields_without_matches():
+    from unittest.mock import patch, MagicMock
+    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        date_re=r"\d{4}/\d{2}/\d{2}",
+        layout_type="header_mapped",
+        start_page=0,
+        skip_keywords=[],
+        field_mappings=[
+            FieldMapping(standard_field="거래일자", row_offset=0, x_min=0.0,   x_max=100.0),
+            FieldMapping(standard_field="종목명",   row_offset=0, x_min=150.0, x_max=250.0),
+            FieldMapping(standard_field="수수료",   row_offset=0, x_min=300.0, x_max=400.0),
+        ],
+    )
+    mock_rows = [
+        (10.0, [(50.0, "2024/01/01"), (200.0, "삼성전자")]),
+    ]
+    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
+        _txns, raws = build_class(cfg)().parse([MagicMock()])
+
+    assert raws == [{
+        "거래일자": "2024/01/01",
+        "종목명": "삼성전자",
+        "수수료": "",
+    }]
+
+
 def test_header_mapped_continuation_row_concatenates():
     from unittest.mock import patch, MagicMock
     from core.parser_registry import DynamicParserConfig, FieldMapping, build_class

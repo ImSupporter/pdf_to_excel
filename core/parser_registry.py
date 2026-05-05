@@ -75,9 +75,22 @@ def build_class(config: "DynamicParserConfig") -> type:
     import re as _re
     from parsers.base import BaseParser
     from core.models import Transaction
+    from core.parser_template import infer_standard_field
 
     _cfg = config
     _date_re = _re.compile(config.date_re)
+
+    def _standard_key(field_name: str) -> str | None:
+        return infer_standard_field(field_name) or field_name
+
+    def _raw_value(raw: dict, standard_key: str) -> str:
+        for fm in _cfg.field_mappings:
+            if (
+                _standard_key(fm.standard_field) == standard_key
+                and fm.standard_field in raw
+            ):
+                return raw.get(fm.standard_field, "")
+        return raw.get(standard_key, "")
 
     def _parse_num(s: str) -> float:
         try:
@@ -94,7 +107,7 @@ def build_class(config: "DynamicParserConfig") -> type:
             (fm.row_offset for fm in _cfg.field_mappings), default=0
         ) + 1
         _date_fm = next(
-            (fm for fm in _cfg.field_mappings if fm.standard_field == "date"), None
+            (fm for fm in _cfg.field_mappings if _standard_key(fm.standard_field) == "date"), None
         )
         _date_x_min = _date_fm.x_min if _date_fm else None
         _date_x_max = _date_fm.x_max if _date_fm else None
@@ -138,7 +151,10 @@ def build_class(config: "DynamicParserConfig") -> type:
                     groups.append(current)
 
                 for group in groups:
-                    raw: dict = {}
+                    raw: dict = {
+                        fm.standard_field: ""
+                        for fm in _cfg.field_mappings
+                    }
                     for row_offset, (row_y, row_cells) in enumerate(group):
                         if row_offset < _header_group_size:
                             candidates = [fm for fm in _cfg.field_mappings
@@ -157,16 +173,16 @@ def build_class(config: "DynamicParserConfig") -> type:
                                 raw[field] + " " + cell_text if raw.get(field) else cell_text
                             )
                     transactions.append(Transaction(
-                        date=raw.get("date", ""),
-                        type=raw.get("type", ""),
-                        ticker=raw.get("ticker", ""),
-                        name=raw.get("name", ""),
-                        quantity=_parse_num(raw.get("quantity", "")),
-                        price=_parse_num(raw.get("price", "")),
-                        amount=_parse_num(raw.get("amount", "")),
-                        fee=_parse_num(raw.get("fee", "")),
-                        tax=_parse_num(raw.get("tax", "")),
-                        balance=_parse_num(raw.get("balance", "")),
+                        date=_raw_value(raw, "date"),
+                        type=_raw_value(raw, "type"),
+                        ticker=_raw_value(raw, "ticker"),
+                        name=_raw_value(raw, "name"),
+                        quantity=_parse_num(_raw_value(raw, "quantity")),
+                        price=_parse_num(_raw_value(raw, "price")),
+                        amount=_parse_num(_raw_value(raw, "amount")),
+                        fee=_parse_num(_raw_value(raw, "fee")),
+                        tax=_parse_num(_raw_value(raw, "tax")),
+                        balance=_parse_num(_raw_value(raw, "balance")),
                         broker=_cfg.broker_name,
                         raw=raw,
                     ))
@@ -191,9 +207,10 @@ def build_class(config: "DynamicParserConfig") -> type:
                                     "text": text,
                                 })
                 for date_item in [it for it in items if _date_compiled.match(it["text"])]:
-                    raw = {"date": date_item["text"]}
+                    date_field_name = _date_fm.standard_field if _date_fm else "date"
+                    raw = {date_field_name: date_item["text"]}
                     for fm in _cfg.field_mappings:
-                        if fm.standard_field == "date":
+                        if _standard_key(fm.standard_field) == "date":
                             continue
                         candidates = [
                             it for it in items
@@ -202,16 +219,16 @@ def build_class(config: "DynamicParserConfig") -> type:
                         ]
                         raw[fm.standard_field] = candidates[0]["text"] if candidates else ""
                     transactions.append(Transaction(
-                        date=raw.get("date", ""),
-                        type=raw.get("type", ""),
-                        ticker=raw.get("ticker", ""),
-                        name=raw.get("name", ""),
-                        quantity=_parse_num(raw.get("quantity", "")),
-                        price=_parse_num(raw.get("price", "")),
-                        amount=_parse_num(raw.get("amount", "")),
-                        fee=_parse_num(raw.get("fee", "")),
-                        tax=_parse_num(raw.get("tax", "")),
-                        balance=_parse_num(raw.get("balance", "")),
+                        date=_raw_value(raw, "date"),
+                        type=_raw_value(raw, "type"),
+                        ticker=_raw_value(raw, "ticker"),
+                        name=_raw_value(raw, "name"),
+                        quantity=_parse_num(_raw_value(raw, "quantity")),
+                        price=_parse_num(_raw_value(raw, "price")),
+                        amount=_parse_num(_raw_value(raw, "amount")),
+                        fee=_parse_num(_raw_value(raw, "fee")),
+                        tax=_parse_num(_raw_value(raw, "tax")),
+                        balance=_parse_num(_raw_value(raw, "balance")),
                         broker=_cfg.broker_name,
                         raw=raw,
                     ))

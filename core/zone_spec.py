@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import fitz
 from core.parser_registry import FieldMapping, DynamicParserConfig
-from core.parser_template import date_format_to_re, infer_standard_field
+from core.parser_template import date_format_to_re
 
 
 @dataclass
@@ -65,10 +65,10 @@ def extract_fields(zone_spec: ZoneSpec, page: fitz.Page) -> list[FieldMapping]:
             text = _collect_text(words, x0, x1, y0, y1)
             if not text.strip():
                 continue
-            std_field = infer_standard_field(text) or text.strip()
+            field_name = text.strip()
             field_mappings.append(
                 FieldMapping(
-                    standard_field=std_field,
+                    standard_field=field_name,
                     row_offset=row_offset,
                     x_min=x0,
                     x_max=x1,

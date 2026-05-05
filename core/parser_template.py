@@ -444,7 +444,7 @@ def read_parser_template(path) -> TemplateAnnotations:
                 if is_yellow(cell):
                     if not is_header_row:
                         continue
-                    standard_field = infer_standard_field(value) or value
+                    standard_field = value
                     if standard_field in seen_fields:
                         continue
                     seen_fields.add(standard_field)

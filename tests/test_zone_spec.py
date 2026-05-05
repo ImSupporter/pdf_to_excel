@@ -81,6 +81,8 @@ def test_extract_fields_two_columns_no_hlines():
     fields = extract_fields(spec, mock_page)
 
     assert len(fields) == 2
+    assert fields[0].standard_field == "거래일자"
+    assert fields[1].standard_field == "거래명"
     assert fields[0].x_min == 0.0
     assert fields[0].x_max == 100.0
     assert fields[0].y_min == 45.0

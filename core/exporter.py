@@ -16,6 +16,17 @@ def _write_sheet(ws, headers: list[str], rows: list[dict]) -> None:
             ws.cell(row_idx, col, row.get(header, ""))
 
 
+def _collect_headers(rows: list[dict]) -> list[str]:
+    headers: list[str] = []
+    seen = set()
+    for row in rows:
+        for key in row.keys():
+            if key not in seen:
+                seen.add(key)
+                headers.append(key)
+    return headers
+
+
 def export_to_excel(
     broker_raw: dict[str, list[dict]],
     output_path: str,
@@ -32,7 +43,7 @@ def export_to_excel(
         if not raw_rows:
             continue
         ws = wb.create_sheet(title=broker_name[:31])  # Excel 시트명 31자 제한
-        headers = list(raw_rows[0].keys())
+        headers = _collect_headers(raw_rows)
         _write_sheet(ws, headers, raw_rows)
 
     if not wb.sheetnames:

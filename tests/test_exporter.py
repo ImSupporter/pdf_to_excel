@@ -46,6 +46,25 @@ def test_export_broker_sheet_headers_match_raw_keys():
         os.unlink(path)
 
 
+def test_export_broker_sheet_headers_include_keys_from_all_rows():
+    broker_raw = {
+        "테스트증권": [
+            {"거래일자": "2025/01/01", "종목명": "삼성전자"},
+            {"거래일자": "2025/01/02", "거래금액": "200,000"},
+        ]
+    }
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+        path = f.name
+    try:
+        export_to_excel(broker_raw, path)
+        wb = openpyxl.load_workbook(path)
+        ws = wb["테스트증권"]
+        headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+        assert headers == ["거래일자", "종목명", "거래금액"]
+    finally:
+        os.unlink(path)
+
+
 def test_export_broker_sheet_data_rows():
     broker_raw = {
         "테스트증권": [

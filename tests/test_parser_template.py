@@ -35,8 +35,8 @@ def test_read_parser_template_extracts_yellow_header_fields(tmp_path):
     annotations = read_parser_template(path)
 
     assert len(annotations.field_mappings) == 2
-    date_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "date")
-    name_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "name")
+    date_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "거래일자")
+    name_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "종목명")
     assert date_fm.x == 50.0
     assert date_fm.row_offset == 0
     assert name_fm.x == 200.0
@@ -68,8 +68,8 @@ def test_read_parser_template_multi_header_row_offsets(tmp_path):
     wb.save(path)
     annotations = read_parser_template(path)
 
-    date_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "date")
-    name_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "name")
+    date_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "거래일자")
+    name_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "종목명")
     assert date_fm.row_offset == 0
     assert name_fm.row_offset == 1
 
