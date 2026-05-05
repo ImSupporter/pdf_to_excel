@@ -70,8 +70,6 @@ def build_class(config: "DynamicParserConfig") -> type:
     import re as _re
     from parsers.base import BaseParser
     from core.models import Transaction
-    from core.pdf_utils import get_page_rows
-    from core.parser_template import infer_standard_field
 
     _cfg = config
     _date_re = _re.compile(config.date_re)
