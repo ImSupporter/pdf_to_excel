@@ -11,7 +11,7 @@ PDF 거래내역을 최대한 원본에 가깝게 Excel로 변환하기 위해, 
 ### 포함
 
 - Zone Editor에서 데이터 영역과 거래 1건의 반복 y 템플릿을 지정한다.
-- 사용자가 지정한 x 컬럼 영역과 거래 템플릿 y 슬롯을 조합해 셀 매핑 목록을 만든다.
+- 사용자가 지정한 x 컬럼 영역과 컬럼별 거래 템플릿 y 슬롯을 조합해 셀 매핑 목록을 만든다.
 - 각 셀 매핑에는 Excel에 출력할 사용자 필드명을 입력한다.
 - 각 셀 매핑은 선택적으로 표준 필드 4개 중 하나에 연결할 수 있다.
 - 실제 파싱은 데이터 영역 안에서 거래 1건 템플릿을 반복 적용한다.
@@ -48,10 +48,12 @@ Coordinate Template은 한 증권사 PDF의 거래내역 표를 읽기 위한 �
 - `column_xs`: 컬럼 경계를 나누는 세로선 x 좌표
 - `data_start_y`, `data_end_y`: 실제 거래 데이터를 반복 파싱할 y 범위
 - `template_height`: 거래 1건의 높이. 사용자가 데이터 영역의 첫 거래 시작/끝 마커를 맞춰 정한다.
-- `template_row_ys`: 거래 1건 내부를 나누는 y 경계
-- `cell_mappings`: x 컬럼 영역과 거래 1건 내부 y 슬롯을 필드로 연결한 목록
+- `template_row_ys_per_col`: 컬럼별로 거래 1건 내부를 나누는 y 경계
+- `cell_mappings`: x 컬럼 영역과 해당 컬럼의 거래 1건 내부 y 슬롯을 필드로 연결한 목록
 
 파싱 시에는 각 페이지의 데이터 영역에서 `template_height` 단위로 반복 구간을 만들고, 각 반복 구간마다 동일한 셀 매핑을 적용한다.
+
+컬럼별 y 슬롯 수는 서로 달라도 된다. 예를 들어 첫 번째 컬럼은 거래일자 1칸만 갖고, 두 번째 컬럼은 종목명/종목코드 2칸을 갖고, 세 번째 컬럼은 수량/단가/금액 3칸을 가질 수 있다.
 
 ### Cell Mapping
 
@@ -60,6 +62,7 @@ Cell Mapping은 PDF의 특정 셀 사각형을 Excel 컬럼으로 변환하는 �
 필수 값:
 
 - `display_name`: Excel 컬럼명. 사용자가 입력한다.
+- `column_index`: 셀이 속한 컬럼 인덱스. 저장 후 디버깅과 UI 재표시에 사용한다.
 - `x_min`, `x_max`: PDF 좌표계 기준 셀의 가로 범위
 - `template_y_min`, `template_y_max`: 거래 1건 템플릿 안에서의 상대 y 범위
 
@@ -99,7 +102,7 @@ class DynamicParserConfig:
     data_end_y: float
     template_height: float
     column_xs: list[float]
-    template_row_ys: list[float]
+    template_row_ys_per_col: dict[int, list[float]]
     cell_mappings: list[CellMapping]
 ```
 
@@ -112,6 +115,7 @@ class DynamicParserConfig:
 class CellMapping:
     display_name: str
     standard_field: str | None
+    column_index: int
     x_min: float
     x_max: float
     template_y_min: float
@@ -139,19 +143,29 @@ class CellMapping:
 - 컬럼 x 경계
 - 데이터 시작/끝 y
 - 거래 1건 템플릿 끝 y
-- 거래 1건 내부 y 경계
+- 컬럼별 거래 1건 내부 y 경계
 
 거래 1건 템플릿 시작 y는 `data_start_y`와 같다. 사용자는 첫 거래의 끝 y를 맞춰 `template_height = template_end_y - data_start_y`를 정한다. 파서는 이 템플릿 높이와 내부 y 경계를 데이터 끝까지 반복 적용한다.
 
+거래 1건 내부 y 경계선은 전체 표 폭에 공통으로 적용하지 않는다. 사용자가 특정 컬럼 안에서 가로선을 추가하면 그 컬럼에만 y 슬롯이 생긴다. 컬럼마다 y 슬롯 개수가 달라도 정상이다.
+
 ### 3패널: 셀 매핑 목록
 
-사용자가 "셀 목록 생성"을 누르면 x 컬럼 영역과 거래 1건 내부 y 슬롯을 조합해 셀 카드 목록을 만든다.
+사용자가 "셀 목록 생성"을 누르면 x 컬럼 영역과 각 컬럼의 거래 1건 내부 y 슬롯을 조합해 셀 카드 목록을 만든다.
+
+셀 생성 규칙:
+
+1. `column_xs`로 컬럼 x 범위를 만든다.
+2. 각 컬럼별 `template_row_ys_per_col[column_index]`를 정렬한다.
+3. 컬럼별 y 경계가 없으면 해당 컬럼은 거래 1건 전체 높이를 하나의 슬롯으로 사용한다.
+4. 컬럼별 y 경계가 있으면 `[0] + row_ys + [template_height]`로 해당 컬럼의 y 슬롯을 만든다.
+5. 각 컬럼에서만 `x 범위 × 그 컬럼의 y 슬롯` 셀 카드를 만든다.
 
 각 셀 카드는 다음 입력을 가진다.
 
 - 사용자 필드명 `display_name`
 - 표준 필드 연결: 없음, 거래일자, 거래종류, 거래금액, 잔액
-- 셀 좌표 표시: `x=[x_min,x_max]`, `template_y=[y_min,y_max]`
+- 셀 좌표 표시: `column=N`, `x=[x_min,x_max]`, `template_y=[y_min,y_max]`
 
 사용자가 필드명을 비워 둔 셀은 저장하지 않는다. 같은 `display_name`이 여러 셀에 지정되면 파싱 시 같은 raw field에 공백으로 이어 붙인다. 같은 `standard_field`가 여러 셀에 지정되면 같은 방식으로 이어 붙인 값을 `Transaction` 생성에 사용한다.
 
