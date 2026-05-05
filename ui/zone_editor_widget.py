@@ -265,10 +265,8 @@ class ZoneEditorWidget(QWidget):
 
     def _delete_vline(self, idx: int) -> None:
         """세로선 삭제. 가로선의 컬럼 인덱스를 재매핑한다."""
-        # _find_target은 _vlines의 원본 인덱스를 반환하므로 그대로 사용
-        sorted_v = sorted(self._vlines)
-        del_x = self._vlines[idx]
-        sorted_idx = sorted_v.index(del_x)
+        sorted_pairs = sorted(enumerate(self._vlines), key=lambda t: t[1])
+        sorted_idx = next(si for si, (oi, _) in enumerate(sorted_pairs) if oi == idx)
 
         new_hlines: dict[int, list[float]] = {}
         for old_col, ys in self._hlines.items():

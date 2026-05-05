@@ -73,6 +73,23 @@ def test_find_target_returns_hline_in_clicked_column():
     assert target == ("h", 1, 0)
 
 
+def test_delete_vline_with_duplicate_x_remaps_correct_column():
+    from ui.zone_editor_widget import ZoneEditorWidget
+
+    widget = ZoneEditorWidget.__new__(ZoneEditorWidget)
+    widget._vlines = [100.0, 100.0, 200.0]
+    widget._hlines = {0: [30.0], 1: [40.0], 2: [50.0]}
+    widget.update = lambda: None
+
+    # delete the second 100.0 (index 1 in _vlines), which is sorted position 1
+    widget._delete_vline(1)
+
+    assert len(widget._vlines) == 2
+    assert widget._vlines == [100.0, 200.0]
+    # column 0 unchanged; columns 1 and 2 merge into column 1
+    assert widget._hlines[0] == [30.0]
+
+
 def test_get_zone_data_returns_template_height_and_per_column_rows():
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
