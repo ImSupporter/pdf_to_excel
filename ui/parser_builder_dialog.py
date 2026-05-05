@@ -237,7 +237,7 @@ class ParserBuilderDialog(QDialog):
 
         self._fields = build_cell_mappings(
             self._zone_spec,
-            page_width=self._pages[self._start_spin.value()].rect.width,
+            page_width=self._zone_editor._page_w,
         )
         self._populate_field_list()
         self._field_panel.setEnabled(True)
@@ -292,6 +292,10 @@ class ParserBuilderDialog(QDialog):
     def _on_confirm(self) -> None:
         from core import parser_registry
         from core.zone_spec import zone_spec_to_config
+
+        if self._zone_spec is None:
+            QMessageBox.warning(self, "오류", "먼저 셀 목록을 생성하세요.")
+            return
 
         mappings = [fm for fm in self._fields if fm.display_name.strip()]
         if not mappings:
