@@ -83,6 +83,26 @@ def test_export_broker_sheet_data_rows():
         os.unlink(path)
 
 
+def test_export_uses_user_display_field_names(tmp_path):
+    broker_raw = {
+        "테스트증권": [
+            {
+                "내가쓴거래일자": "2026/05/05",
+                "내가쓴종목명": "삼성전자",
+                "내가쓴거래금액": "1,000",
+            }
+        ]
+    }
+    output = tmp_path / "result.xlsx"
+    export_to_excel(broker_raw, str(output))
+
+    wb = openpyxl.load_workbook(output)
+    ws = wb["테스트증권"]
+    headers = [ws.cell(1, col).value for col in range(1, 4)]
+
+    assert headers == ["내가쓴거래일자", "내가쓴종목명", "내가쓴거래금액"]
+
+
 def test_export_skips_empty_broker():
     broker_raw = {
         "빈증권": [],
