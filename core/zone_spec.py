@@ -38,7 +38,7 @@ def _collect_text(
     for w in words:
         cx = (w[0] + w[2]) / 2
         cy = (w[1] + w[3]) / 2
-        if x0 <= cx <= x1 and y0 <= cy <= y1:
+        if x0 <= cx < x1 and y0 <= cy < y1:
             result.append(w[4])
     return " ".join(result)
 

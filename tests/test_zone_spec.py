@@ -41,6 +41,17 @@ def test_collect_text_empty_when_no_match():
     assert result == ""
 
 
+def test_collect_text_boundary_exclusive():
+    from core.zone_spec import _collect_text
+    # word center exactly at x1=100 → should NOT be included in [0, 100)
+    words = [(95.0, 10.0, 105.0, 20.0, "boundary", 0, 0, 0)]
+    result = _collect_text(words, 0.0, 100.0, 5.0, 25.0)
+    assert result == ""
+    # but it SHOULD be included in [100, 200)
+    result2 = _collect_text(words, 100.0, 200.0, 5.0, 25.0)
+    assert "boundary" in result2
+
+
 def test_extract_fields_two_columns_no_hlines():
     from core.zone_spec import ZoneSpec, extract_fields
 
