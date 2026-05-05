@@ -26,19 +26,18 @@ class ZoneEditorWidget(QWidget):
 
         self._vlines: list[float] = []             # 빨간 세로선 x (PDF 좌표)
         self._hlines: dict[int, list[float]] = {}  # col_idx → [y] (PDF 좌표)
-        self._header_start = 0.0
-        self._header_end = 0.0
         self._data_start = 0.0
+        self._template_end = 0.0
         self._data_end = 0.0
 
-        # 드래그 상태: None 또는 ("v", idx) | ("h", col, idx) | ("hs",) | ("he",) | ("ds",) | ("de",)
+        # 드래그 상태: None 또는 ("v", idx) | ("h", col, idx) | ("ds",) | ("te",) | ("de",)
         self._drag: tuple | None = None
 
         self.setMouseTracking(True)
 
     # ── 공개 메서드 ──────────────────────────────────────────────────
 
-    def load_page(self, page: fitz.Page, header_start_keyword: str = "") -> None:
+    def load_page(self, page: fitz.Page) -> None:
         """페이지를 pixmap으로 렌더링하고 초기 영역 마커를 설정한다."""
         mat = fitz.Matrix(_RENDER_SCALE, _RENDER_SCALE)
         pix = page.get_pixmap(matrix=mat)
@@ -52,18 +51,9 @@ class ZoneEditorWidget(QWidget):
         self.setFixedSize(pix.width, pix.height)
 
         h = self._page_h
-        self._header_start = 0.0
-        self._header_end = h * 0.25
         self._data_start = h * 0.28
+        self._template_end = min(h, self._data_start + 24.0)
         self._data_end = h * 0.95
-
-        if header_start_keyword:
-            for w in page.get_text("words"):
-                if header_start_keyword in w[4]:
-                    self._header_start = max(0.0, w[1] - 3.0)
-                    self._header_end = min(h, w[1] + h * 0.20)
-                    self._data_start = min(h, self._header_end + 5.0)
-                    break
 
         self._vlines.clear()
         self._hlines.clear()
@@ -77,9 +67,8 @@ class ZoneEditorWidget(QWidget):
         h = self._page_h
         self._vlines.clear()
         self._hlines.clear()
-        self._header_start = 0.0
-        self._header_end = h * 0.25
         self._data_start = h * 0.28
+        self._template_end = min(h, self._data_start + 24.0)
         self._data_end = h * 0.95
         self.update()
 
@@ -87,11 +76,10 @@ class ZoneEditorWidget(QWidget):
         """현재 선 상태를 PDF 좌표 딕셔너리로 반환 (ZoneSpec 생성에 사용)."""
         return {
             "column_xs": sorted(self._vlines),
-            "row_ys_per_col": {k: sorted(v) for k, v in self._hlines.items()},
-            "header_start_y": self._header_start,
-            "header_end_y": self._header_end,
+            "template_row_ys_per_col": {k: sorted(v) for k, v in self._hlines.items()},
             "data_start_y": self._data_start,
             "data_end_y": self._data_end,
+            "template_height": max(0.0, self._template_end - self._data_start),
         }
 
     # ── 좌표 변환 ────────────────────────────────────────────────────
@@ -120,12 +108,9 @@ class ZoneEditorWidget(QWidget):
         w = self._pixmap.width()
         h = self._pixmap.height()
 
-        # 헤더/데이터 영역 반투명 배경
-        hs = self._s(self._header_start)
-        he = self._s(self._header_end)
+        # 데이터 영역 반투명 배경
         ds = self._s(self._data_start)
         de = self._s(self._data_end)
-        p.fillRect(0, hs, w, max(1, he - hs), QColor(251, 146, 60, 40))
         p.fillRect(0, ds, w, max(1, de - ds), QColor(22, 163, 74, 20))
 
         # 빨간 세로선
@@ -145,20 +130,6 @@ class ZoneEditorWidget(QWidget):
                 sy = self._s(vy)
                 p.drawLine(bx[col_idx], sy, bx[col_idx + 1], sy)
 
-        # 주황 영역 마커 (헤더 시작/끝)
-        pen_orange = QPen(QColor("#f97316"), 2)
-        for yval, label, above in [
-            (self._header_start, "헤더 시작 ↕", False),
-            (self._header_end,   "헤더 끝 ↕",   True),
-        ]:
-            sy = self._s(yval)
-            p.setPen(pen_orange)
-            p.drawLine(0, sy, w, sy)
-            lx, ly = 2, (sy - 16 if above else sy + 2)
-            p.fillRect(lx, ly, 68, 14, QColor("#f97316"))
-            p.setPen(Qt.GlobalColor.white)
-            p.drawText(lx, ly, 68, 14, Qt.AlignmentFlag.AlignCenter, label)
-
         # 초록 영역 마커 (데이터 시작/끝)
         pen_green = QPen(QColor("#16a34a"), 2)
         for yval, label, above in [
@@ -172,6 +143,16 @@ class ZoneEditorWidget(QWidget):
             p.fillRect(lx, ly, 78, 14, QColor("#16a34a"))
             p.setPen(Qt.GlobalColor.white)
             p.drawText(lx, ly, 78, 14, Qt.AlignmentFlag.AlignCenter, label)
+
+        # 템플릿 끝 마커 (보라색)
+        pen_violet = QPen(QColor("#7c3aed"), 2)
+        te = self._s(self._template_end)
+        p.setPen(pen_violet)
+        p.drawLine(0, te, w, te)
+        lx, ly = 2, te - 16
+        p.fillRect(lx, ly, 80, 14, QColor("#7c3aed"))
+        p.setPen(Qt.GlobalColor.white)
+        p.drawText(lx, ly, 80, 14, Qt.AlignmentFlag.AlignCenter, "템플릿 끝 ↕")
 
         p.end()
 
@@ -214,16 +195,13 @@ class ZoneEditorWidget(QWidget):
 
         if tag == "v":
             self._vlines[self._drag[1]] = max(0.0, min(self._page_w, px))
-        elif tag == "hs":
-            self._header_start = max(0.0, min(self._header_end - 1, py))
-        elif tag == "he":
-            self._header_end = max(self._header_start + 1,
-                                   min(self._data_start - 1, py))
         elif tag == "ds":
-            self._data_start = max(self._header_end + 1,
-                                   min(self._data_end - 1, py))
+            self._data_start = max(0.0, min(self._template_end - 1, py))
+        elif tag == "te":
+            self._template_end = max(self._data_start + 1,
+                                     min(self._data_end - 1, py))
         elif tag == "de":
-            self._data_end = max(self._data_start + 1, min(self._page_h, py))
+            self._data_end = max(self._template_end + 1, min(self._page_h, py))
         elif tag == "h":
             _, col, idx = self._drag
             self._hlines[col][idx] = max(0.0, min(self._page_h, py))
@@ -247,7 +225,7 @@ class ZoneEditorWidget(QWidget):
         elif tag == "h":
             _, col, idx = target
             menu.addAction("삭제", lambda: self._delete_hline(col, idx))
-        # 영역 마커(hs/he/ds/de)는 삭제 불가
+        # 영역 마커(ds/te/de)는 삭제 불가
         if menu.actions():
             menu.exec(event.globalPos())
 
@@ -259,9 +237,8 @@ class ZoneEditorWidget(QWidget):
 
         # 영역 마커 우선
         for tag, yval in [
-            ("hs", self._header_start),
-            ("he", self._header_end),
             ("ds", self._data_start),
+            ("te", self._template_end),
             ("de", self._data_end),
         ]:
             if abs(sy - self._s(yval)) <= hit:
