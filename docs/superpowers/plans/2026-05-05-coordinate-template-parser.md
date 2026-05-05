@@ -10,6 +10,48 @@
 
 ---
 
+## Progress Snapshot
+
+Last updated: 2026-05-05.
+
+Completed and reviewed:
+
+- [x] Task 1: Standard Transaction Model
+  - Commit: `d5c6489 refactor: reduce transaction standard fields`
+  - Verification: `python3 -m pytest tests/test_models.py -q` -> `2 passed`
+  - Review status: spec compliance approved; code quality approved to proceed.
+- [x] Task 2: Coordinate Parsing Engine
+  - Commits:
+    - `3c61266 feat: add coordinate template parser runtime`
+    - `4fa7dd6 fix: join coordinate parser duplicate fields`
+    - `7cd6a66 fix: clamp coordinate parser data bounds`
+  - Verification: `python3 -m pytest tests/test_parser_registry.py -q` -> `9 passed`
+  - Review status: spec compliance approved; code quality approved after duplicate-field, half-open-bound, invalid-standard-field, and `data_end_y` clamp fixes.
+- [x] Task 3: Zone Spec Cell Generation
+  - Commits:
+    - `1c2800d feat: generate coordinate cell mappings`
+    - `31a7c2c fix: validate coordinate zone specs`
+  - Verification: `python3 -m pytest tests/test_zone_spec.py -q` -> `15 passed`
+  - Review status: initial spec compliance approved under migration boundary; code quality found validation gaps; validation fix committed. Final re-review is still pending.
+
+Remaining:
+
+- [ ] Task 3 final spec/quality re-review after `31a7c2c`
+- [ ] Task 4: Zone Editor Template Markers
+- [ ] Task 5: Parser Builder Mapping UI
+- [ ] Task 6: Export and Full Regression
+- [ ] Final whole-branch review
+
+Important current state:
+
+- `Transaction` now has only `date`, `type`, `amount`, `balance`, `broker`, and `raw`.
+- `core.parser_registry` now exposes `CellMapping`, coordinate-template `DynamicParserConfig`, and `VALID_STANDARD_FIELDS` derived from `core.models.STANDARD_FIELDS`.
+- Coordinate parsing uses user `display_name` keys for raw rows, joins duplicate display/standard mappings, uses half-open cell bounds, skips only fully empty repeated slots, and clamps extraction to `data_end_y`.
+- `core.zone_spec` now generates blank `CellMapping` objects from per-column y slots and validates broker, keywords, `start_page`, data/template ranges, mappings, and standard fields.
+- `ui.zone_editor_widget.py` and `ui.parser_builder_dialog.py` are not migrated yet. The UI still uses old zone/header concepts until Tasks 4 and 5.
+- Known unrelated untracked files are present and should not be removed without user direction: `KakaoTalk_Photo_2026-05-04-21-45-27.png`, `parser_gen.py`, and `증권거래내역변환기.spec`.
+- Do not read or use `docs/superpowers/specs/2026-05-05-parser-format-design.md`; AGENTS.md marks it as wrong.
+
 ## File Structure
 
 - Modify `core/models.py`: shrink `STANDARD_FIELDS` and `Transaction` to the four standard fields plus broker/raw.
@@ -30,7 +72,7 @@
 - Modify: `core/models.py`
 - Test: `tests/test_models.py`
 
-- [ ] **Step 1: Write the failing model tests**
+- [x] **Step 1: Write the failing model tests**
 
 Add these tests to `tests/test_models.py`:
 
@@ -68,7 +110,7 @@ def test_transaction_has_four_standard_values_and_raw_custom_fields():
     assert not hasattr(tx, "quantity")
 ```
 
-- [ ] **Step 2: Run the model tests to verify they fail**
+- [x] **Step 2: Run the model tests to verify they fail**
 
 Run:
 
@@ -78,7 +120,7 @@ python3 -m pytest tests/test_models.py -q
 
 Expected: FAIL because `STANDARD_FIELDS` and `Transaction` still include the removed fields.
 
-- [ ] **Step 3: Update `core/models.py`**
+- [x] **Step 3: Update `core/models.py`**
 
 Replace `core/models.py` with:
 
@@ -103,7 +145,7 @@ class Transaction:
     raw: dict = field(default_factory=dict)
 ```
 
-- [ ] **Step 4: Run the model tests to verify they pass**
+- [x] **Step 4: Run the model tests to verify they pass**
 
 Run:
 
@@ -113,7 +155,7 @@ python3 -m pytest tests/test_models.py -q
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/models.py tests/test_models.py
@@ -126,7 +168,7 @@ git commit -m "refactor: reduce transaction standard fields"
 - Modify: `core/parser_registry.py`
 - Test: `tests/test_parser_registry.py`
 
-- [ ] **Step 1: Replace old parser-registry tests with coordinate-template tests**
+- [x] **Step 1: Replace old parser-registry tests with coordinate-template tests**
 
 Update `tests/test_parser_registry.py` so it covers the new dataclasses, JSON roundtrip, parser filtering, coordinate extraction, row retention, and defaults:
 
@@ -307,7 +349,7 @@ def test_coordinate_template_skips_only_completely_empty_repeated_slot():
     assert txns[1].balance == 9999.0
 ```
 
-- [ ] **Step 2: Run parser-registry tests to verify they fail**
+- [x] **Step 2: Run parser-registry tests to verify they fail**
 
 Run:
 
@@ -317,7 +359,7 @@ python3 -m pytest tests/test_parser_registry.py -q
 
 Expected: FAIL because `CellMapping` and the coordinate-template parser are not implemented.
 
-- [ ] **Step 3: Implement `core/parser_registry.py`**
+- [x] **Step 3: Implement `core/parser_registry.py`**
 
 Replace the old field-mapping parser runtime with this structure:
 
@@ -539,7 +581,7 @@ def get_all_parsers() -> list:
     return PARSERS + dynamic
 ```
 
-- [ ] **Step 4: Run parser-registry tests to verify they pass**
+- [x] **Step 4: Run parser-registry tests to verify they pass**
 
 Run:
 
@@ -549,7 +591,7 @@ python3 -m pytest tests/test_parser_registry.py -q
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/parser_registry.py tests/test_parser_registry.py
@@ -562,7 +604,7 @@ git commit -m "feat: add coordinate template parser runtime"
 - Modify: `core/zone_spec.py`
 - Test: `tests/test_zone_spec.py`
 
-- [ ] **Step 1: Replace zone-spec tests with coordinate-template tests**
+- [x] **Step 1: Replace zone-spec tests with coordinate-template tests**
 
 Update `tests/test_zone_spec.py`:
 
@@ -639,7 +681,7 @@ def test_zone_spec_to_config_keeps_user_named_mappings():
     assert config.cell_mappings == mappings
 ```
 
-- [ ] **Step 2: Run zone-spec tests to verify they fail**
+- [x] **Step 2: Run zone-spec tests to verify they fail**
 
 Run:
 
@@ -649,7 +691,7 @@ python3 -m pytest tests/test_zone_spec.py -q
 
 Expected: FAIL because `ZoneSpec` and `build_cell_mappings()` still use header extraction concepts.
 
-- [ ] **Step 3: Implement `core/zone_spec.py`**
+- [x] **Step 3: Implement `core/zone_spec.py`**
 
 Replace `core/zone_spec.py` with:
 
@@ -752,7 +794,7 @@ def zone_spec_to_config(
     )
 ```
 
-- [ ] **Step 4: Run zone-spec tests to verify they pass**
+- [x] **Step 4: Run zone-spec tests to verify they pass**
 
 Run:
 
@@ -762,7 +804,7 @@ python3 -m pytest tests/test_zone_spec.py -q
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/zone_spec.py tests/test_zone_spec.py
