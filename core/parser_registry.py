@@ -102,15 +102,24 @@ def build_class(config: "DynamicParserConfig") -> type:
                         i += 1
                         continue
 
-                    groups: list[list[str]] = [anchor_texts]
-                    for offset in range(1, _cfg.rows_per_tx):
-                        j = i + offset
-                        groups.append([cell[1] for cell in all_rows[j]] if j < len(all_rows) else [])
-
                     raw: dict = {}
-                    for fm in _cfg.field_mappings:
-                        grp = groups[fm.row_offset] if fm.row_offset < len(groups) else []
-                        raw[fm.standard_field] = grp[fm.column_index] if fm.column_index < len(grp) else ""
+                    if _cfg.layout_type == "template":
+                        for fm in _cfg.field_mappings:
+                            row_idx = i + fm.row_offset
+                            row = all_rows[row_idx] if row_idx < len(all_rows) else []
+                            if row:
+                                closest = min(row, key=lambda c, _x=fm.x: abs(c[0] - _x))
+                                raw[fm.standard_field] = closest[1]
+                            else:
+                                raw[fm.standard_field] = ""
+                    else:
+                        groups: list[list[str]] = [anchor_texts]
+                        for offset in range(1, _cfg.rows_per_tx):
+                            j = i + offset
+                            groups.append([cell[1] for cell in all_rows[j]] if j < len(all_rows) else [])
+                        for fm in _cfg.field_mappings:
+                            grp = groups[fm.row_offset] if fm.row_offset < len(groups) else []
+                            raw[fm.standard_field] = grp[fm.column_index] if fm.column_index < len(grp) else ""
 
                     normalized = {
                         infer_standard_field(key) or key: value

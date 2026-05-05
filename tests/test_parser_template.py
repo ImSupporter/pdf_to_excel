@@ -60,3 +60,29 @@ def test_infer_standard_field_accepts_common_labels():
     assert infer_standard_field("거래금액") == "amount"
     assert infer_standard_field("ticker") == "ticker"
     assert infer_standard_field("알수없음") is None
+
+
+def test_compute_x_zones_groups_nearby_x_coordinates():
+    from core.parser_template import _compute_x_zones, TemplateCell
+
+    cells = [
+        TemplateCell(0, 0, 0, x=50.0, y=10, text="거래일자"),
+        TemplateCell(0, 0, 1, x=200.0, y=10, text="종목명"),
+        TemplateCell(0, 0, 2, x=350.0, y=10, text="수량"),
+        TemplateCell(0, 1, 0, x=52.0, y=20, text="2024/01/01"),   # same zone as 50
+        TemplateCell(0, 1, 1, x=200.0, y=20, text="삼성"),         # same zone as 200
+        TemplateCell(0, 1, 2, x=222.0, y=20, text="전자"),         # extra word: new zone
+        TemplateCell(0, 1, 3, x=350.0, y=20, text="100"),          # same zone as 350
+    ]
+    zones = _compute_x_zones(cells)
+
+    assert len(zones) == 4  # ~50, ~200, ~222, ~350
+
+
+def test_find_zone_index_returns_nearest_zone_index():
+    from core.parser_template import _find_zone_index
+
+    zones = [50.0, 200.0, 350.0]
+    assert _find_zone_index(49.0, zones) == 0
+    assert _find_zone_index(201.0, zones) == 1
+    assert _find_zone_index(340.0, zones) == 2

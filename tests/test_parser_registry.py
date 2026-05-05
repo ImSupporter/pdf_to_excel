@@ -88,6 +88,49 @@ def test_get_all_parsers_includes_builtins(tmp_path, monkeypatch):
     assert "미래에셋증권" in names
 
 
+def test_template_parser_uses_x_coordinate_to_match_values():
+    """Template layout must find values by x proximity, not word-position column_index.
+
+    Scenario: header has "종목명" at column_index=1, "수량" at column_index=2.
+    Data row has an extra word ("전자" inserted between "삼성" and "100"),
+    shifting "100" to column_index=3. column_index-based lookup returns "전자" for
+    "수량", but x-coordinate lookup returns "100" correctly.
+    """
+    from unittest.mock import patch, MagicMock
+    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        date_re=r"^\d{4}/\d{2}/\d{2}$",
+        layout_type="template",
+        start_page=0,
+        rows_per_tx=1,
+        skip_keywords=[],
+        field_mappings=[
+            FieldMapping(standard_field="거래일자", column_index=0, row_offset=0, x=50.0),
+            FieldMapping(standard_field="종목명",   column_index=1, row_offset=0, x=200.0),
+            FieldMapping(standard_field="수량",     column_index=2, row_offset=0, x=350.0),
+        ],
+    )
+
+    # Data row: "삼성"@200, "전자"@222 (split word), "100"@350
+    # column_index=2 → "전자" (WRONG), x=350 → "100" (CORRECT)
+    mock_rows = [
+        [(50.0, "2024/01/01"), (200.0, "삼성"), (222.0, "전자"), (350.0, "100")]
+    ]
+    mock_page = MagicMock()
+
+    with patch("core.pdf_utils.get_page_rows", return_value=mock_rows):
+        cls = build_class(cfg)
+        inst = cls()
+        _transactions, raw_rows = inst.parse([mock_page])
+
+    assert len(raw_rows) == 1
+    assert raw_rows[0]["종목명"] == "삼성"
+    assert raw_rows[0]["수량"] == "100"
+
+
 def test_get_all_parsers_includes_dynamic(tmp_path, monkeypatch):
     from core import parser_registry
     from core.parser_registry import DynamicParserConfig, FieldMapping, get_all_parsers, save

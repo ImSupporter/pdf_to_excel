@@ -83,6 +83,23 @@ def infer_standard_field(text: str) -> str | None:
     return None
 
 
+def _compute_x_zones(cells: list[TemplateCell], x_gap: float = 20.0) -> list[float]:
+    """Cluster x-coordinates across all cells into distinct column zones."""
+    xs = sorted({c.x for c in cells})
+    if not xs:
+        return [0.0]
+    zones = [xs[0]]
+    for x in xs[1:]:
+        if x - zones[-1] > x_gap:
+            zones.append(x)
+    return zones
+
+
+def _find_zone_index(x: float, zones: list[float]) -> int:
+    """Return the index of the zone nearest to x."""
+    return min(range(len(zones)), key=lambda i: abs(zones[i] - x))
+
+
 def _extract_page_cells(page: fitz.Page, page_index: int, y_tolerance: float = 4.0) -> list[TemplateCell]:
     words = page.get_text("words")
     if not words:
@@ -153,6 +170,7 @@ def export_parser_template(pages: list[fitz.Page], output_path: str | Path, max_
         excel_row += 1
 
         page_cells = _extract_page_cells(page, page_index)
+        zones = _compute_x_zones(page_cells)
         current_row = None
         for cell_info in page_cells:
             if current_row is None:
@@ -161,7 +179,7 @@ def export_parser_template(pages: list[fitz.Page], output_path: str | Path, max_
                 excel_row += 1
                 current_row = cell_info.row_index
 
-            excel_col = cell_info.column_index + 1
+            excel_col = _find_zone_index(cell_info.x, zones) + 1
             max_col = max(max_col, excel_col)
             ws.cell(excel_row, excel_col, cell_info.text)
             meta.append([
