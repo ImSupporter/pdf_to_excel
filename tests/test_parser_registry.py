@@ -1,336 +1,174 @@
 import json
-import tempfile
-from pathlib import Path
-import pytest
+from unittest.mock import MagicMock
 
 
-def test_field_mapping_roundtrip():
-    from core.parser_registry import FieldMapping
-    fm = FieldMapping(standard_field="date", row_offset=0, x_min=10.0, x_max=90.0)
-    assert fm.standard_field == "date"
-    assert fm.row_offset == 0
-    assert fm.x_min == 10.0
-    assert fm.x_max == 90.0
+def _mock_page(words, width=400.0, height=500.0):
+    page = MagicMock()
+    page.rect.width = width
+    page.rect.height = height
+    page.get_text.return_value = words
+    return page
+
+
+def test_cell_mapping_roundtrip():
+    from core.parser_registry import CellMapping
+
+    cm = CellMapping(
+        display_name="사용자거래일자",
+        standard_field="date",
+        column_index=0,
+        x_min=0.0,
+        x_max=100.0,
+        template_y_min=0.0,
+        template_y_max=20.0,
+    )
+
+    assert cm.display_name == "사용자거래일자"
+    assert cm.standard_field == "date"
+    assert cm.column_index == 0
 
 
 def test_dynamic_parser_config_roundtrip(tmp_path, monkeypatch):
     from core import parser_registry
-    from core.parser_registry import DynamicParserConfig, FieldMapping
+    from core.parser_registry import CellMapping, DynamicParserConfig
 
     monkeypatch.setattr(parser_registry, "_get_data_dir", lambda: tmp_path)
 
     cfg = DynamicParserConfig(
         broker_name="테스트증권",
         detection_keywords=["테스트", "거래내역"],
-        date_re=r"\d{4}/\d{2}/\d{2}",
-        layout_type="header_mapped",
+        layout_type="coordinate_template",
         start_page=0,
-        skip_keywords=["합계"],
-        field_mappings=[
-            FieldMapping(standard_field="date", row_offset=0, x_min=0.0, x_max=100.0),
-            FieldMapping(standard_field="amount", row_offset=0, x_min=250.0, x_max=350.0),
+        data_start_y=100.0,
+        data_end_y=200.0,
+        template_height=20.0,
+        column_xs=[100.0, 250.0],
+        template_row_ys_per_col={1: [10.0]},
+        cell_mappings=[
+            CellMapping("거래일자", "date", 0, 0.0, 100.0, 0.0, 20.0),
+            CellMapping("종목명", None, 1, 100.0, 250.0, 0.0, 10.0),
         ],
     )
-    parser_registry.save([cfg])
 
+    parser_registry.save([cfg])
     loaded = parser_registry.load()
+
     assert len(loaded) == 1
     assert loaded[0].broker_name == "테스트증권"
-    assert loaded[0].detection_keywords == ["테스트", "거래내역"]
-    assert len(loaded[0].field_mappings) == 2
-    assert loaded[0].field_mappings[1].x_min == 250.0
-    assert loaded[0].field_mappings[1].x_max == 350.0
+    assert loaded[0].layout_type == "coordinate_template"
+    assert loaded[0].template_row_ys_per_col == {1: [10.0]}
+    assert loaded[0].cell_mappings[1].display_name == "종목명"
 
 
-def test_load_returns_empty_when_no_file(tmp_path, monkeypatch):
+def test_load_ignores_unknown_fields_and_keeps_old_configs_out_of_runtime(tmp_path, monkeypatch):
     from core import parser_registry
+
     monkeypatch.setattr(parser_registry, "_get_data_dir", lambda: tmp_path)
-    result = parser_registry.load()
-    assert result == []
-
-
-def test_load_ignores_unknown_fields_in_old_json(tmp_path, monkeypatch):
-    """Old parsers.json with column_index/rows_per_tx must load without error."""
-    from core import parser_registry
-    monkeypatch.setattr(parser_registry, "_get_data_dir", lambda: tmp_path)
-
-    old_format = [{
-        "broker_name": "구버전증권",
-        "detection_keywords": ["구버전"],
-        "date_re": r"\d{4}/\d{2}/\d{2}",
-        "layout_type": "table",
-        "start_page": 0,
-        "rows_per_tx": 2,
-        "skip_keywords": [],
-        "field_mappings": [{
-            "standard_field": "date",
-            "column_index": 0,
-            "row_offset": 0,
-            "y_min": 0,
-            "y_max": 0,
-            "x": 50.0,
-        }]
-    }]
-    (tmp_path / "parsers.json").write_text(json.dumps(old_format), encoding="utf-8")
+    old_and_new = [
+        {
+            "broker_name": "구버전증권",
+            "detection_keywords": ["구버전"],
+            "date_re": r"\d{4}/\d{2}/\d{2}",
+            "layout_type": "header_mapped",
+            "start_page": 0,
+            "skip_keywords": [],
+            "field_mappings": [],
+        },
+        {
+            "broker_name": "새증권",
+            "detection_keywords": ["새"],
+            "layout_type": "coordinate_template",
+            "start_page": 0,
+            "data_start_y": 100.0,
+            "data_end_y": 120.0,
+            "template_height": 20.0,
+            "column_xs": [],
+            "template_row_ys_per_col": {},
+            "cell_mappings": [],
+        },
+    ]
+    (tmp_path / "parsers.json").write_text(
+        json.dumps(old_and_new, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
     loaded = parser_registry.load()
-    assert len(loaded) == 1
-    assert loaded[0].broker_name == "구버전증권"
-    assert loaded[0].field_mappings[0].x_min == 0.0
-    assert loaded[0].field_mappings[0].x_max == 100.0
+    assert [cfg.broker_name for cfg in loaded] == ["구버전증권", "새증권"]
+
+    runtime_names = [cls.BROKER_NAME for cls in parser_registry.get_all_parsers()]
+    assert "새증권" in runtime_names
+    assert "구버전증권" not in runtime_names
 
 
-def test_build_class_returns_base_parser_subclass():
-    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
-    from parsers.base import BaseParser
-
-    cfg = DynamicParserConfig(
-        broker_name="테스트증권",
-        detection_keywords=["테스트"],
-        date_re=r"\d{4}/\d{2}/\d{2}",
-        layout_type="header_mapped",
-        start_page=0,
-        skip_keywords=[],
-        field_mappings=[
-            FieldMapping(standard_field="date", row_offset=0, x_min=0.0, x_max=100.0),
-        ],
-    )
-    cls = build_class(cfg)
-    assert issubclass(cls, BaseParser)
-    assert cls.BROKER_NAME == "테스트증권"
-    assert cls.DETECTION_KEYWORDS == ["테스트"]
-    assert hasattr(cls(), "parse")
-
-
-def test_header_mapped_cell_outside_all_ranges_skipped():
-    """Cells whose x-coordinate falls outside all FieldMapping ranges are ignored."""
-    from unittest.mock import patch, MagicMock
-    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
-
-    config = DynamicParserConfig(
-        broker_name="Test",
-        detection_keywords=["Test"],
-        date_re=r"\d{4}/\d{2}/\d{2}",
-        layout_type="header_mapped",
-        start_page=0,
-        skip_keywords=[],
-        field_mappings=[
-            FieldMapping(standard_field="date",   row_offset=0, x_min=0.0,   x_max=100.0,
-                         y_min=0.0, y_max=900.0),
-            FieldMapping(standard_field="amount", row_offset=0, x_min=300.0, x_max=400.0,
-                         y_min=0.0, y_max=900.0),
-        ],
-    )
-    ParserClass = build_class(config)
-
-    # cell_x=200 is outside both ranges [0,100] and [300,400] — should be ignored
-    mock_rows = [
-        (10.0, [(50.0, "2025/01/01"), (200.0, "IGNORED"), (350.0, "1000")]),
-    ]
-    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
-        txs, _ = ParserClass().parse([MagicMock()])
-    assert len(txs) == 1
-    assert txs[0].amount == 1000.0
-    # The ignored cell should not appear in any field
-    assert txs[0].name is None or "IGNORED" not in str(txs[0].name)
-
-
-def test_get_all_parsers_includes_dynamic(tmp_path, monkeypatch):
-    from core import parser_registry
-    from core.parser_registry import DynamicParserConfig, FieldMapping, get_all_parsers, save
-
-    monkeypatch.setattr(parser_registry, "_get_data_dir", lambda: tmp_path)
-
-    cfg = DynamicParserConfig(
-        broker_name="다이나믹증권",
-        detection_keywords=["다이나믹"],
-        date_re=r"\d{4}/\d{2}/\d{2}",
-        layout_type="header_mapped",
-        start_page=0,
-        skip_keywords=[],
-        field_mappings=[],
-    )
-    save([cfg])
-    names = [p.BROKER_NAME for p in get_all_parsers()]
-    assert "다이나믹증권" in names
-
-
-def test_header_mapped_single_header_parses_two_transactions():
-    from unittest.mock import patch, MagicMock
-    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
+def test_coordinate_template_parses_repeated_rows_with_display_names():
+    from core.parser_registry import CellMapping, DynamicParserConfig, build_class
 
     cfg = DynamicParserConfig(
         broker_name="테스트",
         detection_keywords=["테스트"],
-        date_re=r"\d{4}/\d{2}/\d{2}",
-        layout_type="header_mapped",
+        layout_type="coordinate_template",
         start_page=0,
-        skip_keywords=[],
-        field_mappings=[
-            FieldMapping(standard_field="date",   row_offset=0, x_min=0.0,   x_max=100.0),
-            FieldMapping(standard_field="name",   row_offset=0, x_min=150.0, x_max=250.0),
-            FieldMapping(standard_field="amount", row_offset=0, x_min=300.0, x_max=400.0),
+        data_start_y=100.0,
+        data_end_y=140.0,
+        template_height=20.0,
+        column_xs=[100.0, 250.0],
+        template_row_ys_per_col={1: [10.0]},
+        cell_mappings=[
+            CellMapping("사용자일자", "date", 0, 0.0, 100.0, 0.0, 20.0),
+            CellMapping("사용자종목명", None, 1, 100.0, 250.0, 0.0, 10.0),
+            CellMapping("사용자금액", "amount", 1, 100.0, 250.0, 10.0, 20.0),
         ],
     )
-    mock_rows = [
-        (10.0, [(50.0, "2024/01/01"), (200.0, "삼성전자"), (350.0, "1000000")]),
-        (20.0, [(50.0, "2024/01/02"), (200.0, "카카오"),   (350.0, "500000")]),
+    words = [
+        (10.0, 102.0, 70.0, 110.0, "2026/05/01", 0, 0, 0),
+        (110.0, 102.0, 160.0, 110.0, "삼성", 0, 0, 1),
+        (165.0, 102.0, 210.0, 110.0, "전자", 0, 0, 2),
+        (110.0, 114.0, 180.0, 122.0, "1,000", 0, 0, 3),
+        (10.0, 122.0, 70.0, 130.0, "2026/05/02", 0, 0, 4),
+        (110.0, 122.0, 160.0, 130.0, "카카오", 0, 0, 5),
+        (110.0, 134.0, 180.0, 138.0, "bad-number", 0, 0, 6),
     ]
-    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
-        txns, raws = build_class(cfg)().parse([MagicMock()])
 
-    assert len(txns) == 2
-    assert txns[0].date == "2024/01/01"
-    assert txns[0].name == "삼성전자"
-    assert txns[0].amount == 1000000.0
-    assert txns[1].date == "2024/01/02"
+    txns, raws = build_class(cfg)().parse([_mock_page(words)])
+
+    assert raws == [
+        {"사용자일자": "2026/05/01", "사용자종목명": "삼성 전자", "사용자금액": "1,000"},
+        {"사용자일자": "2026/05/02", "사용자종목명": "카카오", "사용자금액": "bad-number"},
+    ]
+    assert txns[0].date == "2026/05/01"
+    assert txns[0].amount == 1000.0
+    assert txns[1].date == "2026/05/02"
+    assert txns[1].amount == 0.0
 
 
-def test_header_mapped_preserves_original_field_names_in_raw():
-    from unittest.mock import patch, MagicMock
-    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
+def test_coordinate_template_skips_only_completely_empty_repeated_slot():
+    from core.parser_registry import CellMapping, DynamicParserConfig, build_class
 
     cfg = DynamicParserConfig(
         broker_name="테스트",
         detection_keywords=["테스트"],
-        date_re=r"\d{4}/\d{2}/\d{2}",
-        layout_type="header_mapped",
+        layout_type="coordinate_template",
         start_page=0,
-        skip_keywords=[],
-        field_mappings=[
-            FieldMapping(standard_field="거래일자", row_offset=0, x_min=0.0,   x_max=100.0),
-            FieldMapping(standard_field="종목명",   row_offset=0, x_min=150.0, x_max=250.0),
-            FieldMapping(standard_field="거래금액", row_offset=0, x_min=300.0, x_max=400.0),
+        data_start_y=100.0,
+        data_end_y=160.0,
+        template_height=20.0,
+        column_xs=[100.0],
+        template_row_ys_per_col={},
+        cell_mappings=[
+            CellMapping("사용자일자", "date", 0, 0.0, 100.0, 0.0, 20.0),
+            CellMapping("사용자잔액", "balance", 1, 100.0, 400.0, 0.0, 20.0),
         ],
     )
-    mock_rows = [
-        (10.0, [(50.0, "2024/01/01"), (200.0, "삼성전자"), (350.0, "1000000")]),
+    words = [
+        (10.0, 102.0, 70.0, 110.0, "2026/05/01", 0, 0, 0),
+        (110.0, 142.0, 180.0, 150.0, "9,999", 0, 0, 1),
     ]
-    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
-        txns, raws = build_class(cfg)().parse([MagicMock()])
 
-    assert raws == [{
-        "거래일자": "2024/01/01",
-        "종목명": "삼성전자",
-        "거래금액": "1000000",
-    }]
-    assert txns[0].date == "2024/01/01"
-    assert txns[0].name == "삼성전자"
-    assert txns[0].amount == 1000000.0
+    txns, raws = build_class(cfg)().parse([_mock_page(words)])
 
-
-def test_header_mapped_raw_includes_configured_fields_without_matches():
-    from unittest.mock import patch, MagicMock
-    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
-
-    cfg = DynamicParserConfig(
-        broker_name="테스트",
-        detection_keywords=["테스트"],
-        date_re=r"\d{4}/\d{2}/\d{2}",
-        layout_type="header_mapped",
-        start_page=0,
-        skip_keywords=[],
-        field_mappings=[
-            FieldMapping(standard_field="거래일자", row_offset=0, x_min=0.0,   x_max=100.0),
-            FieldMapping(standard_field="종목명",   row_offset=0, x_min=150.0, x_max=250.0),
-            FieldMapping(standard_field="수수료",   row_offset=0, x_min=300.0, x_max=400.0),
-        ],
-    )
-    mock_rows = [
-        (10.0, [(50.0, "2024/01/01"), (200.0, "삼성전자")]),
+    assert raws == [
+        {"사용자일자": "2026/05/01", "사용자잔액": ""},
+        {"사용자일자": "", "사용자잔액": "9,999"},
     ]
-    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
-        _txns, raws = build_class(cfg)().parse([MagicMock()])
-
-    assert raws == [{
-        "거래일자": "2024/01/01",
-        "종목명": "삼성전자",
-        "수수료": "",
-    }]
-
-
-def test_header_mapped_continuation_row_concatenates():
-    from unittest.mock import patch, MagicMock
-    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
-
-    cfg = DynamicParserConfig(
-        broker_name="테스트",
-        detection_keywords=["테스트"],
-        date_re=r"\d{4}/\d{2}/\d{2}",
-        layout_type="header_mapped",
-        start_page=0,
-        skip_keywords=[],
-        field_mappings=[
-            FieldMapping(standard_field="date", row_offset=0, x_min=0.0,   x_max=100.0),
-            FieldMapping(standard_field="name", row_offset=0, x_min=150.0, x_max=250.0),
-        ],
-    )
-    mock_rows = [
-        (10.0, [(50.0, "2024/01/01"), (200.0, "1Q미국S&P500")]),
-        (20.0, [(200.0, "채혼합50액티브")]),  # continuation
-    ]
-    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
-        txns, _ = build_class(cfg)().parse([MagicMock()])
-
-    assert len(txns) == 1
-    assert txns[0].name == "1Q미국S&P500 채혼합50액티브"
-
-
-def test_header_mapped_two_header_rows_separate_fields():
-    from unittest.mock import patch, MagicMock
-    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
-
-    cfg = DynamicParserConfig(
-        broker_name="테스트",
-        detection_keywords=["테스트"],
-        date_re=r"\d{4}/\d{2}/\d{2}",
-        layout_type="header_mapped",
-        start_page=0,
-        skip_keywords=[],
-        field_mappings=[
-            # Header row 0: date@50, type@150
-            FieldMapping(standard_field="date", row_offset=0, x_min=0.0,   x_max=100.0),
-            FieldMapping(standard_field="type", row_offset=0, x_min=100.0, x_max=200.0),
-            # Header row 1: name@50, amount@150 (same x — different field by row_offset)
-            FieldMapping(standard_field="name",   row_offset=1, x_min=0.0,   x_max=100.0),
-            FieldMapping(standard_field="amount", row_offset=1, x_min=100.0, x_max=200.0),
-        ],
-    )
-    mock_rows = [
-        (10.0, [(50.0, "2024/01/01"), (150.0, "매도")]),
-        (20.0, [(50.0, "삼성전자"),   (150.0, "1000000")]),
-    ]
-    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
-        txns, _ = build_class(cfg)().parse([MagicMock()])
-
-    assert len(txns) == 1
-    assert txns[0].type == "매도"
-    assert txns[0].name == "삼성전자"
-    assert txns[0].amount == 1000000.0
-
-
-def test_header_mapped_skip_keywords_filter_rows():
-    from unittest.mock import patch, MagicMock
-    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
-
-    cfg = DynamicParserConfig(
-        broker_name="테스트",
-        detection_keywords=["테스트"],
-        date_re=r"\d{4}/\d{2}/\d{2}",
-        layout_type="header_mapped",
-        start_page=0,
-        skip_keywords=["합계"],
-        field_mappings=[
-            FieldMapping(standard_field="date",   row_offset=0, x_min=0.0,   x_max=100.0),
-            FieldMapping(standard_field="amount", row_offset=0, x_min=100.0, x_max=200.0),
-        ],
-    )
-    mock_rows = [
-        (10.0, [(50.0, "2024/01/01"), (150.0, "1000000")]),
-        (20.0, [(50.0, "합계"),       (150.0, "9999999")]),
-    ]
-    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
-        txns, _ = build_class(cfg)().parse([MagicMock()])
-
-    assert len(txns) == 1
-    assert txns[0].amount == 1000000.0
+    assert txns[1].date == ""
+    assert txns[1].balance == 9999.0
