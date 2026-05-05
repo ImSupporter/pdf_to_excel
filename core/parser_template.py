@@ -191,7 +191,6 @@ def export_parser_template(
     """
     import re as _re
     from collections import defaultdict
-    from pathlib import Path
 
     all_page_cells = [
         _extract_page_cells(page, pi) for pi, page in enumerate(pages[:max_pages])
