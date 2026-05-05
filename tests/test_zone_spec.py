@@ -14,6 +14,16 @@ def test_split_by_ys_sorts_and_ignores_out_of_range():
     ]
 
 
+def test_split_by_ys_deduplicates_splits():
+    from core.zone_spec import _split_by_ys
+
+    assert _split_by_ys(0.0, 20.0, [10.0, 10.0, 15.0]) == [
+        (0.0, 10.0),
+        (10.0, 15.0),
+        (15.0, 20.0),
+    ]
+
+
 def test_build_cell_mappings_supports_different_y_slot_counts_per_column():
     from core.zone_spec import ZoneSpec, build_cell_mappings
 
@@ -51,7 +61,7 @@ def test_zone_spec_to_config_keeps_user_named_mappings():
 
     spec = ZoneSpec(
         broker_name="테스트",
-        detection_keywords=["테스트", "거래"],
+        detection_keywords=[" 테스트 ", "", "  ", "거래"],
         start_page=1,
         column_xs=[100.0],
         template_row_ys_per_col={},
@@ -69,5 +79,144 @@ def test_zone_spec_to_config_keeps_user_named_mappings():
     assert config.broker_name == "테스트"
     assert config.layout_type == "coordinate_template"
     assert config.start_page == 1
+    assert config.detection_keywords == ["테스트", "거래"]
     assert config.template_height == 25.0
     assert config.cell_mappings == mappings
+
+
+def test_zone_spec_to_config_rejects_blank_broker():
+    import pytest
+
+    from core.zone_spec import zone_spec_to_config
+
+    with pytest.raises(ValueError):
+        zone_spec_to_config(_valid_zone_spec(broker_name=" "), [_valid_cell_mapping()])
+
+
+def test_zone_spec_to_config_rejects_blank_or_whitespace_only_keywords():
+    import pytest
+
+    from core.zone_spec import zone_spec_to_config
+
+    with pytest.raises(ValueError):
+        zone_spec_to_config(
+            _valid_zone_spec(detection_keywords=["", "  "]),
+            [_valid_cell_mapping()],
+        )
+
+
+def test_zone_spec_to_config_rejects_negative_start_page():
+    import pytest
+
+    from core.zone_spec import zone_spec_to_config
+
+    with pytest.raises(ValueError):
+        zone_spec_to_config(_valid_zone_spec(start_page=-1), [_valid_cell_mapping()])
+
+
+def test_zone_spec_to_config_rejects_invalid_data_y_range():
+    import pytest
+
+    from core.zone_spec import zone_spec_to_config
+
+    with pytest.raises(ValueError):
+        zone_spec_to_config(
+            _valid_zone_spec(data_start_y=100.0, data_end_y=100.0),
+            [_valid_cell_mapping()],
+        )
+
+
+def test_zone_spec_to_config_rejects_nonpositive_template_height():
+    import pytest
+
+    from core.zone_spec import zone_spec_to_config
+
+    with pytest.raises(ValueError):
+        zone_spec_to_config(_valid_zone_spec(template_height=0.0), [_valid_cell_mapping()])
+
+
+def test_zone_spec_to_config_rejects_empty_mappings():
+    import pytest
+
+    from core.zone_spec import zone_spec_to_config
+
+    with pytest.raises(ValueError):
+        zone_spec_to_config(_valid_zone_spec(), [])
+
+
+def test_zone_spec_to_config_rejects_blank_display_name():
+    import pytest
+
+    from core.zone_spec import zone_spec_to_config
+
+    with pytest.raises(ValueError):
+        zone_spec_to_config(_valid_zone_spec(), [_valid_cell_mapping(display_name=" ")])
+
+
+def test_zone_spec_to_config_rejects_invalid_x_range():
+    import pytest
+
+    from core.zone_spec import zone_spec_to_config
+
+    with pytest.raises(ValueError):
+        zone_spec_to_config(
+            _valid_zone_spec(),
+            [_valid_cell_mapping(x_min=100.0, x_max=100.0)],
+        )
+
+
+def test_zone_spec_to_config_rejects_invalid_template_y_range():
+    import pytest
+
+    from core.zone_spec import zone_spec_to_config
+
+    with pytest.raises(ValueError):
+        zone_spec_to_config(
+            _valid_zone_spec(),
+            [_valid_cell_mapping(template_y_min=25.0, template_y_max=25.0)],
+        )
+
+
+def test_zone_spec_to_config_rejects_invalid_standard_field():
+    import pytest
+
+    from core.zone_spec import zone_spec_to_config
+
+    with pytest.raises(ValueError):
+        zone_spec_to_config(
+            _valid_zone_spec(),
+            [_valid_cell_mapping(standard_field="unsupported")],
+        )
+
+
+def _valid_zone_spec(**overrides):
+    from core.zone_spec import ZoneSpec
+
+    values = {
+        "broker_name": "테스트",
+        "detection_keywords": ["테스트"],
+        "start_page": 0,
+        "column_xs": [100.0],
+        "template_row_ys_per_col": {},
+        "data_start_y": 50.0,
+        "data_end_y": 150.0,
+        "template_height": 25.0,
+    }
+    values.update(overrides)
+    return ZoneSpec(**values)
+
+
+def _valid_cell_mapping(**overrides):
+    from core.parser_registry import CellMapping
+
+    values = {
+        "display_name": "내거래일자",
+        "standard_field": "date",
+        "column_index": 0,
+        "x_min": 0.0,
+        "x_max": 100.0,
+        "template_y_min": 0.0,
+        "template_y_max": 25.0,
+    }
+    values.update(overrides)
+    return CellMapping(**values)

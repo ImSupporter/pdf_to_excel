@@ -18,7 +18,7 @@ class ZoneSpec:
 def _split_by_ys(
     y_start: float, y_end: float, ys: list[float]
 ) -> list[tuple[float, float]]:
-    interior = sorted(y for y in ys if y_start < y < y_end)
+    interior = sorted({y for y in ys if y_start < y < y_end})
     points = [y_start] + interior + [y_end]
     return [(points[i], points[i + 1]) for i in range(len(points) - 1)]
 
@@ -68,8 +68,10 @@ def validate_cell_mapping(mapping: CellMapping) -> None:
 def validate_zone_spec(zone_spec: ZoneSpec, mappings: list[CellMapping]) -> None:
     if not zone_spec.broker_name.strip():
         raise ValueError("증권사명을 입력하세요.")
-    if not zone_spec.detection_keywords:
+    if not _normalize_detection_keywords(zone_spec.detection_keywords):
         raise ValueError("감지 키워드를 1개 이상 입력하세요.")
+    if zone_spec.start_page < 0:
+        raise ValueError("시작 페이지는 0 이상이어야 합니다.")
     if zone_spec.data_start_y >= zone_spec.data_end_y:
         raise ValueError("데이터 영역의 시작/끝이 올바르지 않습니다.")
     if zone_spec.template_height <= 0:
@@ -80,6 +82,10 @@ def validate_zone_spec(zone_spec: ZoneSpec, mappings: list[CellMapping]) -> None
         validate_cell_mapping(mapping)
 
 
+def _normalize_detection_keywords(keywords: list[str]) -> list[str]:
+    return [keyword.strip() for keyword in keywords if keyword.strip()]
+
+
 def zone_spec_to_config(
     zone_spec: ZoneSpec,
     cell_mappings: list[CellMapping],
@@ -87,7 +93,7 @@ def zone_spec_to_config(
     validate_zone_spec(zone_spec, cell_mappings)
     return DynamicParserConfig(
         broker_name=zone_spec.broker_name,
-        detection_keywords=zone_spec.detection_keywords,
+        detection_keywords=_normalize_detection_keywords(zone_spec.detection_keywords),
         layout_type="coordinate_template",
         start_page=zone_spec.start_page,
         data_start_y=zone_spec.data_start_y,
