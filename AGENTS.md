@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 한국 증권사 PDF 거래내역 → Excel 변환기. PyQt6 GUI 앱으로, Windows EXE(PyInstaller)로 배포된다.
 
+## 주의
+
+`docs/superpowers/specs/2026-05-05-parser-format-design.md`는 잘못된 스펙 문서다. 요구사항 정리, 스펙 작성, 계획 작성, 구현 판단에 이 문서를 참고하지 말 것.
+
 ## 명령어
 
 ```bash
