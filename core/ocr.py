@@ -4,20 +4,26 @@ import numpy as np
 _reader = None
 
 
+def _backend_available(backend) -> bool:
+    if backend is None:
+        return False
+    try:
+        return bool(backend.is_available())
+    except Exception:
+        return False
+
+
 def _gpu_available() -> bool:
     try:
         import torch
     except ImportError:
         return False
 
-    cuda = getattr(torch, "cuda", None)
-    if cuda is None:
-        return False
+    if _backend_available(getattr(torch, "cuda", None)):
+        return True
 
-    try:
-        return bool(cuda.is_available())
-    except Exception:
-        return False
+    backends = getattr(torch, "backends", None)
+    return _backend_available(getattr(backends, "mps", None))
 
 
 def _get_reader():
