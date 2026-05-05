@@ -50,11 +50,9 @@ class ParserSelectDialog(QDialog):
 
     def _populate(self):
         from core.parser_registry import get_all_parsers
-        from parsers import PARSERS
 
         self._table.setRowCount(0)
         self._parser_map.clear()
-        builtin_names = {p.BROKER_NAME for p in PARSERS}
         rec_name = self._recommended.BROKER_NAME if self._recommended else None
 
         for parser_cls in get_all_parsers():
@@ -67,13 +65,11 @@ class ParserSelectDialog(QDialog):
             star_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self._table.setItem(row, 0, star_item)
             self._table.setItem(row, 1, QTableWidgetItem(name))
-            is_builtin = name in builtin_names
-            self._table.setItem(row, 2, QTableWidgetItem("내장" if is_builtin else "동적"))
+            self._table.setItem(row, 2, QTableWidgetItem("동적"))
 
-            if not is_builtin:
-                del_btn = QPushButton("삭제")
-                del_btn.clicked.connect(lambda _checked, b=name: self._delete(b))
-                self._table.setCellWidget(row, 3, del_btn)
+            del_btn = QPushButton("삭제")
+            del_btn.clicked.connect(lambda _checked, b=name: self._delete(b))
+            self._table.setCellWidget(row, 3, del_btn)
 
             if name == rec_name:
                 self._table.selectRow(row)

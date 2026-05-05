@@ -1,20 +1,38 @@
-import pytest
 import fitz
+import pytest
 from core.loader import load_pdf, PasswordError
 
-def test_load_pdf_with_correct_password(samsung_pdf, pdf_password):
-    pages = load_pdf(str(samsung_pdf), pdf_password)
-    assert len(pages) == 3  # 삼성 PDF는 3페이지
 
-def test_load_pdf_without_password_on_unprotected():
+@pytest.fixture
+def protected_pdf(tmp_path):
     doc = fitz.open()
     doc.new_page()
-    tmp_path = "/tmp/test_nopass.pdf"
-    doc.save(tmp_path)
+    path = str(tmp_path / "protected.pdf")
+    doc.save(
+        path,
+        encryption=fitz.PDF_ENCRYPT_AES_256,
+        owner_pw="owner",
+        user_pw="user123",
+    )
     doc.close()
-    pages = load_pdf(tmp_path, "")
+    return path
+
+
+def test_load_pdf_with_correct_password(protected_pdf):
+    pages = load_pdf(protected_pdf, "user123")
     assert len(pages) == 1
 
-def test_load_pdf_with_wrong_password_raises(samsung_pdf):
+
+def test_load_pdf_without_password_on_unprotected(tmp_path):
+    doc = fitz.open()
+    doc.new_page()
+    path = str(tmp_path / "open.pdf")
+    doc.save(path)
+    doc.close()
+    pages = load_pdf(path, "")
+    assert len(pages) == 1
+
+
+def test_load_pdf_with_wrong_password_raises(protected_pdf):
     with pytest.raises(PasswordError):
-        load_pdf(str(samsung_pdf), "wrongpass")
+        load_pdf(protected_pdf, "wrongpass")

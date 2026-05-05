@@ -22,7 +22,7 @@ python3 -m pytest tests/test_parser_registry.py::test_roundtrip -v
 pyinstaller 증권거래내역변환기.spec
 ```
 
-**테스트 픽스처:** 실제 PDF 파일(`거래내역확인서_samsung.pdf`, `거래내역증명서_mirae.pdf`, `거래내역_citi.pdf`)이 프로젝트 루트에 있어야 integration/parser 테스트가 돌아간다. 없으면 `pytest.skip`. 비밀번호는 환경변수 `PDF_PASSWORD` (기본값 `990901`).
+**테스트 픽스처:** 단위 테스트는 mock 기반으로 PDF 파일 불필요. 비밀번호는 환경변수 `PDF_PASSWORD` (기본값 `990901`).
 
 ## 아키텍처
 
@@ -36,7 +36,7 @@ PDF 추가 → PasswordDialog → load_pdf() → ParserSelectDialog
 
 ### 핵심 레이어
 
-**`parsers/`** — 내장 파서들. `BaseParser` 상속, `BROKER_NAME`·`DETECTION_KEYWORDS` 클래스 변수 필수. `parse(pages)` → `(list[Transaction], list[dict])` 반환. `list[dict]`는 원본 행 그대로 (컬럼명은 파서마다 다름).
+**`parsers/`** — 파서 베이스만 존재. `BaseParser`를 상속하는 내장 파서는 없음. `BROKER_NAME`·`DETECTION_KEYWORDS` 클래스 변수 필수. `parse(pages)` → `(list[Transaction], list[dict])` 반환.
 
 **`core/parser_registry.py`** — 동적 파서 엔진. `DynamicParserConfig`를 JSON으로 `%APPDATA%\증권거래내역변환기\parsers.json`에 저장. `build_class(config)` 가 `type()`으로 런타임에 `BaseParser` 서브클래스를 생성. `get_all_parsers()`가 내장 + 동적 파서 전체 반환. `FieldMapping`은 `x_min: float, x_max: float`로 컬럼 범위를 직접 지정 (`x` 단일 좌표 방식은 제거됨, 구 JSON 하위호환 로드 지원).
 
@@ -56,16 +56,15 @@ PDF 추가 → PasswordDialog → load_pdf() → ParserSelectDialog
 
 **`core/zone_spec.py`** — `ZoneSpec` 데이터클래스(ZoneEditorWidget에서 수집한 좌표 + 폼 입력값). `extract_fields(zone_spec, page)` → `list[FieldMapping]` (헤더 셀 텍스트 읽어 표준 필드 매핑 생성). `zone_spec_to_config(zone_spec, field_mappings)` → `DynamicParserConfig`.
 
-### 내장 파서별 특성
+### 파서 구조
 
-| 파서 | layout_type | 특이사항 |
-|------|-------------|---------|
-| `SamsungParser` | `table` | 거래 1건 = 2–3행, 첫 행에 날짜 |
-| `MiraeAssetParser` | `rotated` | 거래 1건 = 페이지를 가로로 가르는 좁은 세로 슬롯(~8px). `page.get_text("dict")` 블록 x좌표로 슬롯 검출 |
-| `CitiParser` | `table` | 영문 PDF |
-| 동적 파서 (ZoneEditor) | `header_mapped` | ZoneEditorWidget으로 생성. FieldMapping의 `x_min/x_max` 범위로 셀 매칭. `parsers.json`에 저장 |
+모든 파서는 ZoneEditorWidget으로 생성하는 동적 파서뿐이다.
 
-새 내장 파서 추가 시 `parsers/__init__.py`의 `PARSERS` 리스트에 등록 필요.
+| layout_type | 설명 |
+|-------------|------|
+| `header_mapped` | ZoneEditorWidget으로 생성. FieldMapping의 `x_min/x_max` 범위로 셀 매칭. `parsers.json`에 저장 |
+
+동적 파서는 `core/parser_registry.py`의 `build_class(config)`가 런타임에 `BaseParser` 서브클래스를 생성한다.
 
 ### PyInstaller 배포 제약
 

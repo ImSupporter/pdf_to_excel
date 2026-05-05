@@ -135,17 +135,6 @@ def test_header_mapped_cell_outside_all_ranges_skipped():
     assert txs[0].name is None or "IGNORED" not in str(txs[0].name)
 
 
-def test_get_all_parsers_includes_builtins(tmp_path, monkeypatch):
-    from core import parser_registry
-    monkeypatch.setattr(parser_registry, "_get_data_dir", lambda: tmp_path)
-    from core.parser_registry import get_all_parsers
-
-    all_parsers = get_all_parsers()
-    names = [p.BROKER_NAME for p in all_parsers]
-    assert "삼성증권" in names
-    assert "미래에셋증권" in names
-
-
 def test_get_all_parsers_includes_dynamic(tmp_path, monkeypatch):
     from core import parser_registry
     from core.parser_registry import DynamicParserConfig, FieldMapping, get_all_parsers, save
