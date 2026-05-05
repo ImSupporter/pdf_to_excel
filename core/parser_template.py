@@ -53,9 +53,17 @@ class TemplateCell:
 
 
 @dataclass
+class AnnotatedField:
+    standard_field: str
+    row_offset: int
+    x: float
+
+
+@dataclass
 class TemplateAnnotations:
-    field_cells: list[TemplateCell]
+    field_mappings: list[AnnotatedField]
     skip_keywords: list[str]
+    detected_date_format: str | None = None
 
 
 def _cell_fill_rgb(cell) -> str:
@@ -375,18 +383,24 @@ def export_parser_template(
     return detected_format
 
 
-def read_parser_template(path: str | Path) -> TemplateAnnotations:
+def read_parser_template(path) -> TemplateAnnotations:
     wb = openpyxl.load_workbook(path)
     if META_SHEET not in wb.sheetnames:
         raise ValueError("포맷 파일 metadata 시트를 찾을 수 없습니다.")
 
+    detected_date_format = None
+    if "_config" in wb.sheetnames:
+        for row in wb["_config"].iter_rows(values_only=True):
+            if row and row[0] == "date_format" and row[1]:
+                detected_date_format = str(row[1])
+
     meta_ws = wb[META_SHEET]
-    metadata: dict[tuple[str, int, int], TemplateCell] = {}
+    metadata = {}
     for row in meta_ws.iter_rows(min_row=2, values_only=True):
         if not row or row[0] is None:
             continue
-        sheet, excel_row, excel_col, page_index, row_index, column_index, x, y, text = row
-        metadata[(str(sheet), int(excel_row), int(excel_col))] = TemplateCell(
+        sheet, excel_row, excel_col, page_index, row_index, column_index, x, y, text, is_header = row
+        tc = TemplateCell(
             page_index=int(page_index),
             row_index=int(row_index),
             column_index=int(column_index),
@@ -394,33 +408,49 @@ def read_parser_template(path: str | Path) -> TemplateAnnotations:
             y=float(y),
             text=str(text or ""),
         )
+        metadata[(str(sheet), int(excel_row), int(excel_col))] = (tc, bool(is_header))
 
-    field_cells: list[TemplateCell] = []
-    skip_keywords: list[str] = []
+    header_excel_rows = [
+        er for (sh, er, _ec), (_tc, is_hdr) in metadata.items()
+        if is_hdr and sh != META_SHEET
+    ]
+    header_start_excel_row = min(header_excel_rows) if header_excel_rows else None
+
+    field_mappings = []
+    skip_keywords = []
+    seen_fields = set()
 
     for sheet_name in wb.sheetnames:
-        if sheet_name in {META_SHEET, FIELDS_SHEET}:
+        if sheet_name in {META_SHEET, FIELDS_SHEET, "_config"}:
             continue
         ws = wb[sheet_name]
         for row in ws.iter_rows():
             for cell in row:
-                info = metadata.get((sheet_name, cell.row, cell.column))
-                if info is None:
+                key = (sheet_name, cell.row, cell.column)
+                if key not in metadata:
                     continue
-                value = str(cell.value or info.text or "").strip()
+                tc, is_header_row = metadata[key]
+                value = str(cell.value or tc.text or "").strip()
                 if not value:
                     continue
                 if is_yellow(cell):
-                    field_cells.append(TemplateCell(
-                        page_index=info.page_index,
-                        row_index=info.row_index,
-                        column_index=info.column_index,
-                        x=info.x,
-                        y=info.y,
-                        text=value,
+                    if not is_header_row:
+                        continue
+                    standard_field = infer_standard_field(value) or value
+                    if standard_field in seen_fields:
+                        continue
+                    seen_fields.add(standard_field)
+                    row_offset = (cell.row - header_start_excel_row) if header_start_excel_row else 0
+                    field_mappings.append(AnnotatedField(
+                        standard_field=standard_field,
+                        row_offset=row_offset,
+                        x=tc.x,
                     ))
                 elif is_gray(cell):
                     skip_keywords.append(value)
 
-    unique_skips = list(dict.fromkeys(skip_keywords))
-    return TemplateAnnotations(field_cells=field_cells, skip_keywords=unique_skips)
+    return TemplateAnnotations(
+        field_mappings=field_mappings,
+        skip_keywords=list(dict.fromkeys(skip_keywords)),
+        detected_date_format=detected_date_format,
+    )

@@ -2,7 +2,9 @@ import openpyxl
 from openpyxl.styles import PatternFill
 
 
-def test_read_parser_template_extracts_yellow_fields_and_gray_keywords(tmp_path):
+def test_read_parser_template_extracts_yellow_header_fields(tmp_path):
+    import openpyxl
+    from openpyxl.styles import PatternFill
     from core.parser_template import META_SHEET, read_parser_template
 
     path = tmp_path / "format.xlsx"
@@ -10,28 +12,40 @@ def test_read_parser_template_extracts_yellow_fields_and_gray_keywords(tmp_path)
     ws = wb.active
     ws.title = "PDF"
     meta = wb.create_sheet(META_SHEET)
-    meta.append(["sheet", "excel_row", "excel_col", "page_index", "row_index", "column_index", "x", "y", "text"])
+    meta.append(["sheet","excel_row","excel_col","page_index","row_index","column_index","x","y","text","is_header_row"])
 
     ws["A1"] = "거래일자"
     ws["A1"].fill = PatternFill(fill_type="solid", fgColor="FFFF00")
-    meta.append(["PDF", 1, 1, 0, 3, 0, 12.5, 48.0, "거래일자"])
+    meta.append(["PDF", 1, 1, 0, 3, 0, 50.0, 48.0, "거래일자", True])
 
-    ws["B1"] = "합계"
-    ws["B1"].fill = PatternFill(fill_type="solid", fgColor="BFBFBF")
-    meta.append(["PDF", 1, 2, 0, 3, 1, 58.0, 48.0, "합계"])
+    ws["B1"] = "종목명"
+    ws["B1"].fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+    meta.append(["PDF", 1, 2, 0, 3, 1, 200.0, 48.0, "종목명", True])
+
+    ws["C1"] = "합계"
+    ws["C1"].fill = PatternFill(fill_type="solid", fgColor="BFBFBF")
+    meta.append(["PDF", 1, 3, 0, 3, 2, 300.0, 48.0, "합계", True])
+
+    # Yellow on data row → must be IGNORED
+    ws["A2"] = "2024/01/01"
+    ws["A2"].fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+    meta.append(["PDF", 2, 1, 0, 4, 0, 50.0, 60.0, "2024/01/01", False])
 
     wb.save(path)
-
     annotations = read_parser_template(path)
 
-    assert len(annotations.field_cells) == 1
-    assert annotations.field_cells[0].text == "거래일자"
-    assert annotations.field_cells[0].row_index == 3
-    assert annotations.field_cells[0].column_index == 0
+    assert len(annotations.field_mappings) == 2
+    date_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "date")
+    name_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "name")
+    assert date_fm.x == 50.0
+    assert date_fm.row_offset == 0
+    assert name_fm.x == 200.0
     assert annotations.skip_keywords == ["합계"]
 
 
-def test_read_parser_template_keeps_arbitrary_yellow_cell_names(tmp_path):
+def test_read_parser_template_multi_header_row_offsets(tmp_path):
+    import openpyxl
+    from openpyxl.styles import PatternFill
     from core.parser_template import META_SHEET, read_parser_template
 
     path = tmp_path / "format.xlsx"
@@ -39,18 +53,66 @@ def test_read_parser_template_keeps_arbitrary_yellow_cell_names(tmp_path):
     ws = wb.active
     ws.title = "PDF"
     meta = wb.create_sheet(META_SHEET)
-    meta.append(["sheet", "excel_row", "excel_col", "page_index", "row_index", "column_index", "x", "y", "text"])
+    meta.append(["sheet","excel_row","excel_col","page_index","row_index","column_index","x","y","text","is_header_row"])
 
-    ws["A1"] = "내가 원하는 컬럼"
+    # excel_row=1: 거래일자 → row_offset=0
+    ws["A1"] = "거래일자"
     ws["A1"].fill = PatternFill(fill_type="solid", fgColor="FFFF00")
-    meta.append(["PDF", 1, 1, 0, 3, 0, 12.5, 48.0, "내가 원하는 컬럼"])
+    meta.append(["PDF", 1, 1, 0, 3, 0, 50.0, 48.0, "거래일자", True])
 
+    # excel_row=2: 종목명 → row_offset=1
+    ws["B2"] = "종목명"
+    ws["B2"].fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+    meta.append(["PDF", 2, 2, 0, 4, 1, 150.0, 60.0, "종목명", True])
+
+    wb.save(path)
+    annotations = read_parser_template(path)
+
+    date_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "date")
+    name_fm = next(fm for fm in annotations.field_mappings if fm.standard_field == "name")
+    assert date_fm.row_offset == 0
+    assert name_fm.row_offset == 1
+
+
+def test_read_parser_template_reads_config_sheet(tmp_path):
+    import openpyxl
+    from core.parser_template import META_SHEET, read_parser_template
+
+    path = tmp_path / "format.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "PDF"
+    meta = wb.create_sheet(META_SHEET)
+    meta.append(["sheet","excel_row","excel_col","page_index","row_index","column_index","x","y","text","is_header_row"])
+    cfg = wb.create_sheet("_config")
+    cfg.append(["date_format", "yyyy/mm/dd"])
+    cfg.append(["data_start_keyword", "거래일자"])
     wb.save(path)
 
     annotations = read_parser_template(path)
+    assert annotations.detected_date_format == "yyyy/mm/dd"
 
-    assert len(annotations.field_cells) == 1
-    assert annotations.field_cells[0].text == "내가 원하는 컬럼"
+
+def test_read_parser_template_custom_field_name(tmp_path):
+    """Unknown header text is kept as-is (custom field key)."""
+    import openpyxl
+    from openpyxl.styles import PatternFill
+    from core.parser_template import META_SHEET, read_parser_template
+
+    path = tmp_path / "format.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "PDF"
+    meta = wb.create_sheet(META_SHEET)
+    meta.append(["sheet","excel_row","excel_col","page_index","row_index","column_index","x","y","text","is_header_row"])
+
+    ws["A1"] = "특수컬럼명XYZ"
+    ws["A1"].fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+    meta.append(["PDF", 1, 1, 0, 3, 0, 50.0, 48.0, "특수컬럼명XYZ", True])
+
+    wb.save(path)
+    annotations = read_parser_template(path)
+    assert annotations.field_mappings[0].standard_field == "특수컬럼명XYZ"
 
 
 def test_infer_standard_field_accepts_common_labels():
