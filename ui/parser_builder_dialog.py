@@ -62,7 +62,8 @@ class ParserBuilderDialog(QDialog):
         form.addRow("감지 키워드 *:", self._kw_edit)
 
         self._start_spin = QSpinBox()
-        self._start_spin.setRange(0, 99)
+        self._start_spin.setRange(1, 100)
+        self._start_spin.setValue(1)
         form.addRow("시작 페이지:", self._start_spin)
 
         vbox.addLayout(form)
@@ -209,9 +210,9 @@ class ParserBuilderDialog(QDialog):
             QMessageBox.warning(self, "입력 오류", "감지 키워드를 입력하세요.")
             return
 
-        start = self._start_spin.value()
+        start = self._start_spin.value() - 1
         if start >= len(self._pages):
-            QMessageBox.warning(self, "입력 오류", f"시작 페이지({start})가 범위를 벗어납니다.")
+            QMessageBox.warning(self, "입력 오류", f"시작 페이지({self._start_spin.value()})가 범위를 벗어납니다.")
             return
 
         self._zone_editor.load_page(self._pages[start])
@@ -227,7 +228,7 @@ class ParserBuilderDialog(QDialog):
         self._zone_spec = ZoneSpec(
             broker_name=self._broker_edit.text().strip(),
             detection_keywords=keywords,
-            start_page=self._start_spin.value(),
+            start_page=self._start_spin.value() - 1,
             column_xs=zone_data["column_xs"],
             template_row_ys_per_col=zone_data["template_row_ys_per_col"],
             data_start_y=zone_data["data_start_y"],
@@ -308,7 +309,7 @@ class ParserBuilderDialog(QDialog):
         zone_spec = ZoneSpec(
             broker_name=self._broker_edit.text().strip(),
             detection_keywords=keywords,
-            start_page=self._start_spin.value(),
+            start_page=self._start_spin.value() - 1,
             column_xs=zone_data["column_xs"],
             template_row_ys_per_col=zone_data["template_row_ys_per_col"],
             data_start_y=zone_data["data_start_y"],
