@@ -121,7 +121,7 @@ def build_class(config: "DynamicParserConfig") -> type:
                 current: list[tuple] = []
                 for row_y, row_cells in rows_with_y:
                     is_anchor = False
-                    if _date_x_min is not None:
+                    if _date_fm is not None:
                         date_cells = [c for c in row_cells if _date_x_min <= c[0] <= _date_x_max]
                         if date_cells and _date_compiled.match(date_cells[0][1]):
                             is_anchor = True
@@ -151,6 +151,7 @@ def build_class(config: "DynamicParserConfig") -> type:
                             matching = [fm for fm in candidates if fm.x_min <= cell_x <= fm.x_max]
                             if not matching:
                                 continue
+                            # column strips from ZoneEditorWidget are non-overlapping; first match wins
                             field = matching[0].standard_field
                             raw[field] = (
                                 raw[field] + " " + cell_text if raw.get(field) else cell_text

@@ -102,6 +102,39 @@ def test_build_class_returns_base_parser_subclass():
     assert hasattr(cls(), "parse")
 
 
+def test_header_mapped_cell_outside_all_ranges_skipped():
+    """Cells whose x-coordinate falls outside all FieldMapping ranges are ignored."""
+    from unittest.mock import patch, MagicMock
+    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
+
+    config = DynamicParserConfig(
+        broker_name="Test",
+        detection_keywords=["Test"],
+        date_re=r"\d{4}/\d{2}/\d{2}",
+        layout_type="header_mapped",
+        start_page=0,
+        skip_keywords=[],
+        field_mappings=[
+            FieldMapping(standard_field="date",   row_offset=0, x_min=0.0,   x_max=100.0,
+                         y_min=0.0, y_max=900.0),
+            FieldMapping(standard_field="amount", row_offset=0, x_min=300.0, x_max=400.0,
+                         y_min=0.0, y_max=900.0),
+        ],
+    )
+    ParserClass = build_class(config)
+
+    # cell_x=200 is outside both ranges [0,100] and [300,400] — should be ignored
+    mock_rows = [
+        (10.0, [(50.0, "2025/01/01"), (200.0, "IGNORED"), (350.0, "1000")]),
+    ]
+    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
+        txs, _ = ParserClass().parse([MagicMock()])
+    assert len(txs) == 1
+    assert txs[0].amount == 1000.0
+    # The ignored cell should not appear in any field
+    assert txs[0].name is None or "IGNORED" not in str(txs[0].name)
+
+
 def test_get_all_parsers_includes_builtins(tmp_path, monkeypatch):
     from core import parser_registry
     monkeypatch.setattr(parser_registry, "_get_data_dir", lambda: tmp_path)
