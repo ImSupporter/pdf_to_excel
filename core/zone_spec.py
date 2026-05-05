@@ -31,9 +31,10 @@ def _column_strips(column_xs: list[float], page_width: float) -> list[tuple[floa
 
 def build_cell_mappings(zone_spec: ZoneSpec, page_width: float) -> list[CellMapping]:
     mappings: list[CellMapping] = []
-    for col_idx, (x_min, x_max) in enumerate(
-        _column_strips(zone_spec.column_xs, page_width)
-    ):
+    strips = _column_strips(zone_spec.column_xs, page_width)
+    # 첫 번째(왼쪽 여백)와 마지막(오른쪽 여백) 열은 제외
+    inner = strips[1:-1] if len(strips) > 2 else []
+    for col_idx, (x_min, x_max) in enumerate(inner, start=1):
         row_ys = zone_spec.template_row_ys_per_col.get(col_idx, [])
         slots = _split_by_ys(0.0, zone_spec.template_height, row_ys)
         for y_min, y_max in slots:

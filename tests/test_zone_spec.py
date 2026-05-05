@@ -27,30 +27,32 @@ def test_split_by_ys_deduplicates_splits():
 def test_build_cell_mappings_deduplicates_column_xs():
     from core.zone_spec import ZoneSpec, build_cell_mappings
 
+    # 100.0 중복 → 내부 열 [100, 200] 1개 생성
     spec = ZoneSpec(
         broker_name="테스트",
         detection_keywords=["테스트"],
         start_page=0,
-        column_xs=[100.0, 100.0],
+        column_xs=[100.0, 100.0, 200.0],
         template_row_ys_per_col={},
         data_start_y=0.0,
         data_end_y=20.0,
         template_height=20.0,
     )
-    cells = build_cell_mappings(spec, page_width=200.0)
-    assert len(cells) == 2
-    assert cells[0].x_max == 100.0
-    assert cells[1].x_min == 100.0
+    cells = build_cell_mappings(spec, page_width=300.0)
+    assert len(cells) == 1
+    assert cells[0].x_min == 100.0
+    assert cells[0].x_max == 200.0
 
 
 def test_build_cell_mappings_supports_different_y_slot_counts_per_column():
     from core.zone_spec import ZoneSpec, build_cell_mappings
 
+    # 바깥쪽 열(col 0: 0~50, col 3: 300~400)은 제외되고 내부 열 2개만 생성
     spec = ZoneSpec(
         broker_name="테스트",
         detection_keywords=["테스트"],
         start_page=0,
-        column_xs=[100.0, 250.0],
+        column_xs=[50.0, 150.0, 300.0],
         template_row_ys_per_col={1: [10.0], 2: [6.0, 12.0]},
         data_start_y=100.0,
         data_end_y=180.0,
@@ -63,12 +65,11 @@ def test_build_cell_mappings_supports_different_y_slot_counts_per_column():
         (c.column_index, c.x_min, c.x_max, c.template_y_min, c.template_y_max)
         for c in cells
     ] == [
-        (0, 0.0, 100.0, 0.0, 20.0),
-        (1, 100.0, 250.0, 0.0, 10.0),
-        (1, 100.0, 250.0, 10.0, 20.0),
-        (2, 250.0, 400.0, 0.0, 6.0),
-        (2, 250.0, 400.0, 6.0, 12.0),
-        (2, 250.0, 400.0, 12.0, 20.0),
+        (1, 50.0, 150.0, 0.0, 10.0),
+        (1, 50.0, 150.0, 10.0, 20.0),
+        (2, 150.0, 300.0, 0.0, 6.0),
+        (2, 150.0, 300.0, 6.0, 12.0),
+        (2, 150.0, 300.0, 12.0, 20.0),
     ]
     assert all(c.display_name == "" for c in cells)
     assert all(c.standard_field is None for c in cells)
