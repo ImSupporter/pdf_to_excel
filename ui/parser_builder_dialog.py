@@ -2,7 +2,7 @@ import fitz
 from PyQt6.QtWidgets import (
     QDialog, QHBoxLayout, QVBoxLayout, QPushButton,
     QLineEdit, QSpinBox, QFormLayout, QLabel,
-    QScrollArea, QWidget, QMessageBox, QSplitter,
+    QScrollArea, QWidget, QMessageBox, QSplitter, QComboBox,
 )
 from PyQt6.QtCore import Qt
 
@@ -18,7 +18,8 @@ class ParserBuilderDialog(QDialog):
         self.setWindowTitle("파서 생성")
         self.setMinimumSize(1000, 600)
         self._pages = pages
-        self._fields: list = []  # extract_fields() 결과
+        self._fields: list = []   # build_cell_mappings() 결과 (list[CellMapping])
+        self._zone_spec = None    # ZoneSpec — set in _on_generate_cells
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -59,14 +60,6 @@ class ParserBuilderDialog(QDialog):
         self._kw_edit = QLineEdit()
         self._kw_edit.setPlaceholderText("쉼표 구분 (예: 키움증권, 거래내역)")
         form.addRow("감지 키워드 *:", self._kw_edit)
-
-        self._date_fmt_edit = QLineEdit()
-        self._date_fmt_edit.setPlaceholderText("예: yyyy/mm/dd")
-        form.addRow("날짜 형식 *:", self._date_fmt_edit)
-
-        self._header_kw_edit = QLineEdit()
-        self._header_kw_edit.setPlaceholderText("예: 거래일자")
-        form.addRow("헤더 시작 키워드 *:", self._header_kw_edit)
 
         self._start_spin = QSpinBox()
         self._start_spin.setRange(0, 99)
@@ -142,11 +135,11 @@ class ParserBuilderDialog(QDialog):
         bbar.addWidget(reset_btn)
         bbar.addStretch()
 
-        extract_btn = QPushButton("필드 추출 →")
+        extract_btn = QPushButton("셀 목록 생성 →")
         extract_btn.setStyleSheet(
             "background:#2563eb;color:white;padding:4px 14px;font-weight:bold;"
         )
-        extract_btn.clicked.connect(self._on_extract_fields)
+        extract_btn.clicked.connect(self._on_generate_cells)
         bbar.addWidget(extract_btn)
         vbox.addWidget(bottom)
 
@@ -159,7 +152,7 @@ class ParserBuilderDialog(QDialog):
         vbox.setContentsMargins(0, 0, 0, 0)
         vbox.setSpacing(0)
 
-        title = QLabel("③ 추출된 필드")
+        title = QLabel("③ 셀 매핑")
         title.setStyleSheet(
             "font-weight:bold;font-size:11px;color:#555;"
             "padding:6px 10px;background:#f0f0f0;border-bottom:1px solid #ccc;"
@@ -209,12 +202,11 @@ class ParserBuilderDialog(QDialog):
             self._zone_editor.set_mode(ZoneEditorWidget.MODE_NONE)
 
     def _on_open_zone_editor(self) -> None:
-        date_fmt = self._date_fmt_edit.text().strip()
         if not self._broker_edit.text().strip():
             QMessageBox.warning(self, "입력 오류", "증권사명을 입력하세요.")
             return
-        if not date_fmt:
-            QMessageBox.warning(self, "입력 오류", "날짜 형식을 입력하세요 (예: yyyy/mm/dd).")
+        if not [k.strip() for k in self._kw_edit.text().split(",") if k.strip()]:
+            QMessageBox.warning(self, "입력 오류", "감지 키워드를 입력하세요.")
             return
 
         start = self._start_spin.value()
@@ -222,14 +214,11 @@ class ParserBuilderDialog(QDialog):
             QMessageBox.warning(self, "입력 오류", f"시작 페이지({start})가 범위를 벗어납니다.")
             return
 
-        self._zone_editor.load_page(
-            self._pages[start],
-            header_start_keyword=self._header_kw_edit.text().strip(),
-        )
+        self._zone_editor.load_page(self._pages[start])
         self._zone_panel.setEnabled(True)
 
-    def _on_extract_fields(self) -> None:
-        from core.zone_spec import ZoneSpec, extract_fields
+    def _on_generate_cells(self) -> None:
+        from core.zone_spec import ZoneSpec, build_cell_mappings
 
         kw_text = self._kw_edit.text().strip()
         keywords = [k.strip() for k in kw_text.split(",") if k.strip()]
@@ -238,25 +227,18 @@ class ParserBuilderDialog(QDialog):
         self._zone_spec = ZoneSpec(
             broker_name=self._broker_edit.text().strip(),
             detection_keywords=keywords,
-            date_format=self._date_fmt_edit.text().strip(),
-            header_start_keyword=self._header_kw_edit.text().strip(),
             start_page=self._start_spin.value(),
             column_xs=zone_data["column_xs"],
-            row_ys_per_col=zone_data["row_ys_per_col"],
-            header_start_y=zone_data["header_start_y"],
-            header_end_y=zone_data["header_end_y"],
+            template_row_ys_per_col=zone_data["template_row_ys_per_col"],
             data_start_y=zone_data["data_start_y"],
             data_end_y=zone_data["data_end_y"],
+            template_height=zone_data["template_height"],
         )
 
-        try:
-            self._fields = extract_fields(
-                self._zone_spec, self._pages[self._start_spin.value()]
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "필드 추출 실패", str(exc))
-            return
-
+        self._fields = build_cell_mappings(
+            self._zone_spec,
+            page_width=self._pages[self._start_spin.value()].rect.width,
+        )
         self._populate_field_list()
         self._field_panel.setEnabled(True)
         self._confirm_btn.setEnabled(True)
@@ -277,14 +259,33 @@ class ParserBuilderDialog(QDialog):
             cl.setContentsMargins(6, 4, 6, 4)
             cl.setSpacing(2)
 
-            lbl_field = QLabel(fm.standard_field)
-            lbl_field.setStyleSheet("font-weight:bold;font-size:10px;color:#1d4ed8;")
+            name_edit = QLineEdit()
+            name_edit.setPlaceholderText("엑셀 필드명")
+            name_edit.textChanged.connect(
+                lambda text, m=fm: setattr(m, "display_name", text.strip())
+            )
+
+            standard_combo = QComboBox()
+            standard_combo.addItem("표준 연결 없음", None)
+            standard_combo.addItem("거래일자", "date")
+            standard_combo.addItem("거래종류", "type")
+            standard_combo.addItem("거래금액", "amount")
+            standard_combo.addItem("잔액", "balance")
+            standard_combo.currentIndexChanged.connect(
+                lambda _idx, combo=standard_combo, m=fm: setattr(
+                    m, "standard_field", combo.currentData()
+                )
+            )
+
             lbl_meta = QLabel(
-                f"row_offset={fm.row_offset}  "
-                f"x=[{fm.x_min:.0f},{fm.x_max:.0f}]"
+                f"column={fm.column_index}  "
+                f"x=[{fm.x_min:.0f},{fm.x_max:.0f}]  "
+                f"y=[{fm.template_y_min:.0f},{fm.template_y_max:.0f}]"
             )
             lbl_meta.setStyleSheet("font-size:9px;color:#555;")
-            cl.addWidget(lbl_field)
+
+            cl.addWidget(name_edit)
+            cl.addWidget(standard_combo)
             cl.addWidget(lbl_meta)
             self._field_list_layout.addWidget(card)
 
@@ -292,11 +293,17 @@ class ParserBuilderDialog(QDialog):
         from core import parser_registry
         from core.zone_spec import zone_spec_to_config
 
-        if not self._fields:
-            QMessageBox.warning(self, "오류", "추출된 필드가 없습니다.")
+        mappings = [fm for fm in self._fields if fm.display_name.strip()]
+        if not mappings:
+            QMessageBox.warning(self, "오류", "저장할 셀 매핑이 없습니다.")
             return
 
-        config = zone_spec_to_config(self._zone_spec, self._fields)
+        try:
+            config = zone_spec_to_config(self._zone_spec, mappings)
+        except ValueError as exc:
+            QMessageBox.warning(self, "입력 오류", str(exc))
+            return
+
         configs = parser_registry.load()
         configs.append(config)
         parser_registry.save(configs)
