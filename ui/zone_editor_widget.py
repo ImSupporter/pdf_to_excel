@@ -74,9 +74,15 @@ class ZoneEditorWidget(QWidget):
 
     def get_zone_data(self) -> dict:
         """현재 선 상태를 PDF 좌표 딕셔너리로 반환 (ZoneSpec 생성에 사용)."""
+        # _hlines는 절대 PDF y좌표로 저장되지만, template_row_ys_per_col은
+        # 거래 1건 템플릿 내 상대 y좌표(0~template_height)여야 함.
+        relative_hlines = {
+            col_idx: sorted(y - self._data_start for y in ys)
+            for col_idx, ys in self._hlines.items()
+        }
         return {
             "column_xs": sorted(self._vlines),
-            "template_row_ys_per_col": {k: sorted(v) for k, v in self._hlines.items()},
+            "template_row_ys_per_col": relative_hlines,
             "data_start_y": self._data_start,
             "data_end_y": self._data_end,
             "template_height": max(0.0, self._template_end - self._data_start),

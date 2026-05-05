@@ -99,7 +99,7 @@ def test_get_zone_data_returns_template_height_and_per_column_rows():
     widget._page_w = 300.0
     widget._page_h = 400.0
     widget._vlines = [100.0, 200.0]
-    widget._hlines = {0: [8.0], 1: [5.0, 15.0]}
+    widget._hlines = {0: [108.0], 1: [105.0, 115.0]}  # 절대 PDF y좌표 (100 + 8, 100 + 5, 100 + 15)
     widget._data_start = 100.0
     widget._template_end = 120.0
     widget._data_end = 300.0
@@ -107,7 +107,7 @@ def test_get_zone_data_returns_template_height_and_per_column_rows():
     data = widget.get_zone_data()
 
     assert data["column_xs"] == [100.0, 200.0]
-    assert data["template_row_ys_per_col"] == {0: [8.0], 1: [5.0, 15.0]}
+    assert data["template_row_ys_per_col"] == {0: [8.0], 1: [5.0, 15.0]}  # 상대 좌표로 변환됨
     assert data["data_start_y"] == 100.0
     assert data["data_end_y"] == 300.0
     assert data["template_height"] == 20.0
