@@ -263,9 +263,10 @@ def export_parser_template(
     if first_data_row_idx is None:
         raise ValueError("첫 번째 데이터 행을 찾을 수 없습니다.")
 
-    # Column zones from header cells only
+    # Column zones from first data row (center-aligned headers give unreliable x)
     header_cells = [c for c in page_cells if c.row_index in header_row_indices]
-    zones = _compute_x_zones(header_cells, x_gap=20.0)
+    first_data_cells = cells_by_row[first_data_row_idx]
+    zones = _compute_x_zones(first_data_cells or header_cells, x_gap=20.0)
 
     # Find date column x for anchor detection
     date_header_x = next(
@@ -333,9 +334,11 @@ def export_parser_template(
 
     HEADER_BG = "D9D9D9"
     SAMPLE_FILLS = ["FFFFFF", "EBF3FB"]
+    ANCHOR_GREEN = "70AD47"
 
     excel_row = 3
     max_col = 1
+    first_anchor_done = False
 
     for row_idx in header_row_indices:
         for c in sorted(cells_by_row[row_idx], key=lambda cell: cell.x):
@@ -351,14 +354,19 @@ def export_parser_template(
             ])
         excel_row += 1
 
+    green_fill = PatternFill(fill_type="solid", fgColor=ANCHOR_GREEN)
     for group_idx, group in enumerate(sample_groups):
         bg = SAMPLE_FILLS[group_idx % 2]
         fill = PatternFill(fill_type="solid", fgColor=bg)
-        for row in group:
+        for row_in_group, row in enumerate(group):
             for c in row:
                 excel_col = _find_zone_index(c.x, zones) + 1
                 max_col = max(max_col, excel_col)
-                ws.cell(excel_row, excel_col, c.text).fill = fill
+                if not first_anchor_done and row_in_group == 0 and compiled_re.match(c.text):
+                    ws.cell(excel_row, excel_col, c.text).fill = green_fill
+                    first_anchor_done = True
+                else:
+                    ws.cell(excel_row, excel_col, c.text).fill = fill
                 meta.append([
                     ws.title, excel_row, excel_col,
                     c.page_index, c.row_index, c.column_index,
