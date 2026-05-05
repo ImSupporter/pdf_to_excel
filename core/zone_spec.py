@@ -1,96 +1,99 @@
 from dataclasses import dataclass
-import fitz
-from core.parser_registry import FieldMapping, DynamicParserConfig
-from core.parser_template import date_format_to_re
+
+from core.parser_registry import CellMapping, DynamicParserConfig, VALID_STANDARD_FIELDS
 
 
 @dataclass
 class ZoneSpec:
     broker_name: str
     detection_keywords: list[str]
-    date_format: str                      # "yyyy/mm/dd" 형식
-    header_start_keyword: str
     start_page: int
-
-    column_xs: list[float]                # 빨간 세로선 x좌표 (PDF 좌표, 정렬 불필요)
-    row_ys_per_col: dict[int, list[float]]  # 컬럼 인덱스 → 파란선 y 리스트
-
-    header_start_y: float
-    header_end_y: float
+    column_xs: list[float]
+    template_row_ys_per_col: dict[int, list[float]]
     data_start_y: float
     data_end_y: float
+    template_height: float
 
 
 def _split_by_ys(
     y_start: float, y_end: float, ys: list[float]
 ) -> list[tuple[float, float]]:
-    """header_start~header_end 구간을 ys로 분할해 (y0, y1) 슬롯 리스트 반환."""
     interior = sorted(y for y in ys if y_start < y < y_end)
     points = [y_start] + interior + [y_end]
     return [(points[i], points[i + 1]) for i in range(len(points) - 1)]
 
 
-def _collect_text(
-    words: list, x0: float, x1: float, y0: float, y1: float
-) -> str:
-    """page.get_text('words') 결과에서 (x0,y0,x1,y1) 범위 내 텍스트를 공백 결합."""
-    result = []
-    for w in words:
-        cx = (w[0] + w[2]) / 2
-        cy = (w[1] + w[3]) / 2
-        if x0 <= cx < x1 and y0 <= cy < y1:
-            result.append(w[4])
-    return " ".join(result)
-
-
-def extract_fields(zone_spec: ZoneSpec, page: fitz.Page) -> list[FieldMapping]:
-    """ZoneSpec의 선 좌표로 헤더 셀을 읽어 FieldMapping 리스트를 반환."""
-    page_width = page.rect.width
-    xs = sorted(zone_spec.column_xs)
+def _column_strips(column_xs: list[float], page_width: float) -> list[tuple[float, float]]:
+    xs = sorted(x for x in column_xs if 0.0 < x < page_width)
     boundaries = [0.0] + xs + [page_width]
-    column_strips = [
-        (boundaries[i], boundaries[i + 1]) for i in range(len(boundaries) - 1)
-    ]
+    return [(boundaries[i], boundaries[i + 1]) for i in range(len(boundaries) - 1)]
 
-    words = page.get_text("words")
-    field_mappings: list[FieldMapping] = []
 
-    for col_idx, (x0, x1) in enumerate(column_strips):
-        row_ys = sorted(zone_spec.row_ys_per_col.get(col_idx, []))
-        y_slots = _split_by_ys(
-            zone_spec.header_start_y, zone_spec.header_end_y, row_ys
-        )
-
-        for row_offset, (y0, y1) in enumerate(y_slots):
-            text = _collect_text(words, x0, x1, y0, y1)
-            if not text.strip():
-                continue
-            field_name = text.strip()
-            field_mappings.append(
-                FieldMapping(
-                    standard_field=field_name,
-                    row_offset=row_offset,
-                    x_min=x0,
-                    x_max=x1,
-                    y_min=zone_spec.data_start_y,
-                    y_max=zone_spec.data_end_y,
+def build_cell_mappings(zone_spec: ZoneSpec, page_width: float) -> list[CellMapping]:
+    mappings: list[CellMapping] = []
+    for col_idx, (x_min, x_max) in enumerate(
+        _column_strips(zone_spec.column_xs, page_width)
+    ):
+        row_ys = zone_spec.template_row_ys_per_col.get(col_idx, [])
+        slots = _split_by_ys(0.0, zone_spec.template_height, row_ys)
+        for y_min, y_max in slots:
+            mappings.append(
+                CellMapping(
+                    display_name="",
+                    standard_field=None,
+                    column_index=col_idx,
+                    x_min=x_min,
+                    x_max=x_max,
+                    template_y_min=y_min,
+                    template_y_max=y_max,
                 )
             )
+    return mappings
 
-    return field_mappings
+
+def validate_cell_mapping(mapping: CellMapping) -> None:
+    if not mapping.display_name.strip():
+        raise ValueError("필드명을 입력하세요.")
+    if (
+        mapping.standard_field is not None
+        and mapping.standard_field not in VALID_STANDARD_FIELDS
+    ):
+        raise ValueError("지원하지 않는 표준 필드입니다.")
+    if mapping.x_min >= mapping.x_max:
+        raise ValueError("셀의 x 범위가 올바르지 않습니다.")
+    if mapping.template_y_min >= mapping.template_y_max:
+        raise ValueError("셀의 y 범위가 올바르지 않습니다.")
+
+
+def validate_zone_spec(zone_spec: ZoneSpec, mappings: list[CellMapping]) -> None:
+    if not zone_spec.broker_name.strip():
+        raise ValueError("증권사명을 입력하세요.")
+    if not zone_spec.detection_keywords:
+        raise ValueError("감지 키워드를 1개 이상 입력하세요.")
+    if zone_spec.data_start_y >= zone_spec.data_end_y:
+        raise ValueError("데이터 영역의 시작/끝이 올바르지 않습니다.")
+    if zone_spec.template_height <= 0:
+        raise ValueError("거래 1건 높이는 0보다 커야 합니다.")
+    if not mappings:
+        raise ValueError("셀 매핑을 1개 이상 입력하세요.")
+    for mapping in mappings:
+        validate_cell_mapping(mapping)
 
 
 def zone_spec_to_config(
     zone_spec: ZoneSpec,
-    field_mappings: list[FieldMapping],
+    cell_mappings: list[CellMapping],
 ) -> DynamicParserConfig:
-    """ZoneSpec + FieldMapping 리스트 → DynamicParserConfig."""
+    validate_zone_spec(zone_spec, cell_mappings)
     return DynamicParserConfig(
         broker_name=zone_spec.broker_name,
         detection_keywords=zone_spec.detection_keywords,
-        date_re=date_format_to_re(zone_spec.date_format),
-        layout_type="header_mapped",
+        layout_type="coordinate_template",
         start_page=zone_spec.start_page,
-        skip_keywords=[],
-        field_mappings=field_mappings,
+        data_start_y=zone_spec.data_start_y,
+        data_end_y=zone_spec.data_end_y,
+        template_height=zone_spec.template_height,
+        column_xs=zone_spec.column_xs,
+        template_row_ys_per_col=zone_spec.template_row_ys_per_col,
+        cell_mappings=cell_mappings,
     )
