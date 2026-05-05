@@ -1,195 +1,302 @@
 import fitz
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLineEdit, QSpinBox, QFormLayout, QScrollArea, QWidget,
-    QMessageBox, QFileDialog, QTextEdit,
+    QDialog, QHBoxLayout, QVBoxLayout, QPushButton,
+    QLineEdit, QSpinBox, QFormLayout, QLabel,
+    QScrollArea, QWidget, QMessageBox, QSplitter,
 )
+from PyQt6.QtCore import Qt
 
 
 class ParserBuilderDialog(QDialog):
+    """3-패널 단일 창 파서 생성 다이얼로그.
+
+    pages: 이미 로드된 fitz.Page 리스트 (메인 창에서 전달).
+    """
+
     def __init__(self, pages: list[fitz.Page], parent=None):
         super().__init__(parent)
-        self.setWindowTitle("파서 추가")
-        self.setMinimumSize(640, 520)
+        self.setWindowTitle("파서 생성")
+        self.setMinimumSize(1000, 600)
         self._pages = pages
-        self._template_path: str | None = None
-        self._annotations = None
+        self._fields: list = []  # extract_fields() 결과
 
-        main = QVBoxLayout(self)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        form_widget = QWidget()
-        form = QFormLayout(form_widget)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        root.addWidget(splitter)
+
+        splitter.addWidget(self._build_form_panel())
+        splitter.addWidget(self._build_zone_panel())
+        splitter.addWidget(self._build_field_panel())
+        splitter.setSizes([230, 600, 210])
+
+        # 초기 비활성화
+        self._zone_panel.setEnabled(False)
+        self._field_panel.setEnabled(False)
+        self._confirm_btn.setEnabled(False)
+
+    # ── 패널 빌더 ─────────────────────────────────────────────────────
+
+    def _build_form_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setMaximumWidth(260)
+        vbox = QVBoxLayout(panel)
+        vbox.setContentsMargins(10, 10, 10, 10)
+
+        title = QLabel("① 파서 정보")
+        title.setStyleSheet("font-weight:bold;font-size:11px;color:#555;")
+        vbox.addWidget(title)
+
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
 
         self._broker_edit = QLineEdit()
         form.addRow("증권사명 *:", self._broker_edit)
 
         self._kw_edit = QLineEdit()
-        self._kw_edit.setPlaceholderText("쉼표 구분 (예: 키움증권, 거래내역확인)")
+        self._kw_edit.setPlaceholderText("쉼표 구분 (예: 키움증권, 거래내역)")
         form.addRow("감지 키워드 *:", self._kw_edit)
 
-        self._data_start_edit = QLineEdit()
-        self._data_start_edit.setPlaceholderText("예: 거래일자")
-        form.addRow("데이터 시작 키워드 *:", self._data_start_edit)
-
         self._date_fmt_edit = QLineEdit()
-        self._date_fmt_edit.setPlaceholderText("예: yyyy/mm/dd  (빈칸이면 자동 감지)")
-        form.addRow("날짜 형식:", self._date_fmt_edit)
+        self._date_fmt_edit.setPlaceholderText("예: yyyy/mm/dd")
+        form.addRow("날짜 형식 *:", self._date_fmt_edit)
+
+        self._header_kw_edit = QLineEdit()
+        self._header_kw_edit.setPlaceholderText("예: 거래일자")
+        form.addRow("헤더 시작 키워드 *:", self._header_kw_edit)
 
         self._start_spin = QSpinBox()
         self._start_spin.setRange(0, 99)
         form.addRow("시작 페이지:", self._start_spin)
 
-        file_row = QHBoxLayout()
-        download_btn = QPushButton("포맷 파일 다운로드")
-        download_btn.clicked.connect(self._download_template)
-        upload_btn = QPushButton("업로드")
-        upload_btn.clicked.connect(self._upload_template)
-        file_row.addWidget(download_btn)
-        file_row.addWidget(upload_btn)
-        file_row.addStretch()
-        form.addRow("포맷 파일:", file_row)
+        vbox.addLayout(form)
+        vbox.addStretch()
 
-        self._summary = QTextEdit()
-        self._summary.setReadOnly(True)
-        self._summary.setMinimumHeight(180)
-        self._summary.setPlainText(
-            "1. 데이터 시작 키워드(예: 거래일자)를 입력하고 포맷 파일을 다운로드하세요.\n"
-            "2. 엑셀에서 제목행(회색) 셀을 노란색으로 칠해 필드를 지정하세요.\n"
-            "3. 무시할 키워드(합계 등)는 회색으로 칠하세요.\n"
-            "4. 저장한 엑셀 파일을 업로드한 뒤 파서를 저장하세요."
+        self._open_zone_btn = QPushButton("영역 지정 →")
+        self._open_zone_btn.setStyleSheet(
+            "background:#8b5cf6;color:white;padding:8px;font-weight:bold;"
         )
-        form.addRow("업로드 결과:", self._summary)
+        self._open_zone_btn.clicked.connect(self._on_open_zone_editor)
+        vbox.addWidget(self._open_zone_btn)
 
-        scroll.setWidget(form_widget)
-        main.addWidget(scroll)
-
-        btns = QHBoxLayout()
-        btns.addStretch()
         cancel_btn = QPushButton("취소")
         cancel_btn.clicked.connect(self.reject)
-        save_btn = QPushButton("저장")
-        save_btn.setDefault(True)
-        save_btn.clicked.connect(self._save)
-        btns.addWidget(cancel_btn)
-        btns.addWidget(save_btn)
-        main.addLayout(btns)
+        vbox.addWidget(cancel_btn)
 
-    def _download_template(self):
-        from core.parser_template import export_parser_template, date_format_to_re
+        return panel
 
-        data_start = self._data_start_edit.text().strip()
-        if not data_start:
-            QMessageBox.warning(self, "입력 오류", "데이터 시작 키워드를 입력하세요.")
-            return
+    def _build_zone_panel(self) -> QWidget:
+        from ui.zone_editor_widget import ZoneEditorWidget
 
+        self._zone_panel = QWidget()
+        vbox = QVBoxLayout(self._zone_panel)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(0)
+
+        # 툴바
+        toolbar = QWidget()
+        toolbar.setStyleSheet("background:#f0f0f0;border-bottom:1px solid #ccc;")
+        tbar = QHBoxLayout(toolbar)
+        tbar.setContentsMargins(8, 4, 8, 4)
+
+        lbl = QLabel("② 존 에디터")
+        lbl.setStyleSheet("font-weight:bold;color:#555;font-size:11px;")
+        tbar.addWidget(lbl)
+
+        self._add_v_btn = QPushButton("＋세로선")
+        self._add_v_btn.setStyleSheet(
+            "background:#ef4444;color:white;padding:2px 8px;border-radius:3px;"
+        )
+        self._add_v_btn.setCheckable(True)
+        self._add_v_btn.clicked.connect(self._on_toggle_add_v)
+        tbar.addWidget(self._add_v_btn)
+
+        self._add_h_btn = QPushButton("＋가로선")
+        self._add_h_btn.setStyleSheet(
+            "background:#3b82f6;color:white;padding:2px 8px;border-radius:3px;"
+        )
+        self._add_h_btn.setCheckable(True)
+        self._add_h_btn.clicked.connect(self._on_toggle_add_h)
+        tbar.addWidget(self._add_h_btn)
+        tbar.addStretch()
+        vbox.addWidget(toolbar)
+
+        # PDF 캔버스 (스크롤 가능)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(False)
+        self._zone_editor = ZoneEditorWidget()
+        scroll.setWidget(self._zone_editor)
+        vbox.addWidget(scroll, 1)
+
+        # 하단 버튼 바
+        bottom = QWidget()
+        bottom.setStyleSheet("background:#f0f0f0;border-top:1px solid #ccc;")
+        bbar = QHBoxLayout(bottom)
+        bbar.setContentsMargins(8, 6, 8, 6)
+
+        reset_btn = QPushButton("초기화")
+        reset_btn.clicked.connect(self._zone_editor.reset)
+        bbar.addWidget(reset_btn)
+        bbar.addStretch()
+
+        extract_btn = QPushButton("필드 추출 →")
+        extract_btn.setStyleSheet(
+            "background:#2563eb;color:white;padding:4px 14px;font-weight:bold;"
+        )
+        extract_btn.clicked.connect(self._on_extract_fields)
+        bbar.addWidget(extract_btn)
+        vbox.addWidget(bottom)
+
+        return self._zone_panel
+
+    def _build_field_panel(self) -> QWidget:
+        self._field_panel = QWidget()
+        self._field_panel.setMaximumWidth(240)
+        vbox = QVBoxLayout(self._field_panel)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(0)
+
+        title = QLabel("③ 추출된 필드")
+        title.setStyleSheet(
+            "font-weight:bold;font-size:11px;color:#555;"
+            "padding:6px 10px;background:#f0f0f0;border-bottom:1px solid #ccc;"
+        )
+        vbox.addWidget(title)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        self._field_list_widget = QWidget()
+        self._field_list_layout = QVBoxLayout(self._field_list_widget)
+        self._field_list_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._field_list_layout.setSpacing(4)
+        self._field_list_layout.setContentsMargins(6, 6, 6, 6)
+        scroll.setWidget(self._field_list_widget)
+        vbox.addWidget(scroll, 1)
+
+        bottom = QWidget()
+        bottom.setStyleSheet("border-top:1px solid #ddd;")
+        bbar = QVBoxLayout(bottom)
+        bbar.setContentsMargins(7, 7, 7, 7)
+        self._confirm_btn = QPushButton("✓ 확인 (파서 생성)")
+        self._confirm_btn.setStyleSheet(
+            "background:#16a34a;color:white;padding:7px;font-weight:bold;"
+        )
+        self._confirm_btn.clicked.connect(self._on_confirm)
+        bbar.addWidget(self._confirm_btn)
+        vbox.addWidget(bottom)
+
+        return self._field_panel
+
+    # ── 이벤트 핸들러 ────────────────────────────────────────────────
+
+    def _on_toggle_add_v(self, checked: bool) -> None:
+        from ui.zone_editor_widget import ZoneEditorWidget
+        if checked:
+            self._add_h_btn.setChecked(False)
+            self._zone_editor.set_mode(ZoneEditorWidget.MODE_ADD_V)
+        else:
+            self._zone_editor.set_mode(ZoneEditorWidget.MODE_NONE)
+
+    def _on_toggle_add_h(self, checked: bool) -> None:
+        from ui.zone_editor_widget import ZoneEditorWidget
+        if checked:
+            self._add_v_btn.setChecked(False)
+            self._zone_editor.set_mode(ZoneEditorWidget.MODE_ADD_H)
+        else:
+            self._zone_editor.set_mode(ZoneEditorWidget.MODE_NONE)
+
+    def _on_open_zone_editor(self) -> None:
         date_fmt = self._date_fmt_edit.text().strip()
-        date_re = date_format_to_re(date_fmt) if date_fmt else None
-
-        path, _ = QFileDialog.getSaveFileName(
-            self, "포맷 파일 다운로드", "parser_format.xlsx", "Excel Files (*.xlsx)"
-        )
-        if not path:
-            return
-        if not path.lower().endswith(".xlsx"):
-            path += ".xlsx"
-
-        try:
-            detected_fmt = export_parser_template(
-                self._pages, path,
-                data_start_keyword=data_start,
-                date_re=date_re,
-                max_pages=3,
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "다운로드 실패", str(exc))
-            return
-
-        if detected_fmt and not date_fmt:
-            self._date_fmt_edit.setText(detected_fmt)
-
-        self._template_path = path
-        QMessageBox.information(self, "완료", f"포맷 파일을 저장했습니다:\n{path}")
-
-    def _upload_template(self):
-        from core.parser_template import read_parser_template
-
-        path, _ = QFileDialog.getOpenFileName(
-            self, "포맷 파일 업로드", self._template_path or "", "Excel Files (*.xlsx)"
-        )
-        if not path:
-            return
-
-        try:
-            annotations = read_parser_template(path)
-        except Exception as exc:
-            QMessageBox.critical(self, "업로드 실패", str(exc))
-            return
-
-        self._template_path = path
-        self._annotations = annotations
-
-        if annotations.detected_date_format and not self._date_fmt_edit.text().strip():
-            self._date_fmt_edit.setText(annotations.detected_date_format)
-
-        lines = [f"업로드 파일: {path}", ""]
-        lines.append(f"필드 매핑: {len(annotations.field_mappings)}개")
-        for fm in annotations.field_mappings:
-            lines.append(f"  - {fm.standard_field}  (row_offset={fm.row_offset}, x={fm.x:.1f})")
-        lines.append("")
-        lines.append(f"무시 키워드: {len(annotations.skip_keywords)}개")
-        for kw in annotations.skip_keywords:
-            lines.append(f"  - {kw}")
-        self._summary.setPlainText("\n".join(lines))
-
-    def _save(self):
-        from core import parser_registry
-        from core.parser_registry import DynamicParserConfig, FieldMapping
-        from core.parser_template import date_format_to_re
-
-        broker_name = self._broker_edit.text().strip()
-        if not broker_name:
+        if not self._broker_edit.text().strip():
             QMessageBox.warning(self, "입력 오류", "증권사명을 입력하세요.")
             return
-
-        keywords = [k.strip() for k in self._kw_edit.text().split(",") if k.strip()]
-        if not keywords:
-            QMessageBox.warning(self, "입력 오류", "감지 키워드를 하나 이상 입력하세요.")
-            return
-
-        if self._annotations is None:
-            QMessageBox.warning(self, "입력 오류", "노란색/회색 표시를 마친 포맷 파일을 업로드하세요.")
-            return
-
-        if not self._annotations.field_mappings:
-            QMessageBox.warning(self, "입력 오류", "노란색으로 표시된 필드 셀이 없습니다.")
-            return
-
-        date_fmt = self._date_fmt_edit.text().strip()
         if not date_fmt:
             QMessageBox.warning(self, "입력 오류", "날짜 형식을 입력하세요 (예: yyyy/mm/dd).")
             return
 
-        field_mappings = [
-            FieldMapping(
-                standard_field=af.standard_field,
-                row_offset=af.row_offset,
-                x=af.x,
-            )
-            for af in self._annotations.field_mappings
-        ]
+        start = self._start_spin.value()
+        if start >= len(self._pages):
+            QMessageBox.warning(self, "입력 오류", f"시작 페이지({start})가 범위를 벗어납니다.")
+            return
 
-        config = DynamicParserConfig(
-            broker_name=broker_name,
+        self._zone_editor.load_page(
+            self._pages[start],
+            header_start_keyword=self._header_kw_edit.text().strip(),
+        )
+        self._zone_panel.setEnabled(True)
+
+    def _on_extract_fields(self) -> None:
+        from core.zone_spec import ZoneSpec, extract_fields
+
+        kw_text = self._kw_edit.text().strip()
+        keywords = [k.strip() for k in kw_text.split(",") if k.strip()]
+        zone_data = self._zone_editor.get_zone_data()
+
+        self._zone_spec = ZoneSpec(
+            broker_name=self._broker_edit.text().strip(),
             detection_keywords=keywords,
-            date_re=date_format_to_re(date_fmt),
-            layout_type="header_mapped",
+            date_format=self._date_fmt_edit.text().strip(),
+            header_start_keyword=self._header_kw_edit.text().strip(),
             start_page=self._start_spin.value(),
-            skip_keywords=list(self._annotations.skip_keywords),
-            field_mappings=field_mappings,
+            column_xs=zone_data["column_xs"],
+            row_ys_per_col=zone_data["row_ys_per_col"],
+            header_start_y=zone_data["header_start_y"],
+            header_end_y=zone_data["header_end_y"],
+            data_start_y=zone_data["data_start_y"],
+            data_end_y=zone_data["data_end_y"],
         )
 
+        try:
+            self._fields = extract_fields(
+                self._zone_spec, self._pages[self._start_spin.value()]
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "필드 추출 실패", str(exc))
+            return
+
+        self._populate_field_list()
+        self._field_panel.setEnabled(True)
+        self._confirm_btn.setEnabled(True)
+
+    def _populate_field_list(self) -> None:
+        while self._field_list_layout.count():
+            item = self._field_list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for fm in self._fields:
+            card = QWidget()
+            card.setStyleSheet(
+                "background:#eff6ff;border:1px solid #bfdbfe;"
+                "border-radius:3px;padding:2px;"
+            )
+            cl = QVBoxLayout(card)
+            cl.setContentsMargins(6, 4, 6, 4)
+            cl.setSpacing(2)
+
+            lbl_field = QLabel(fm.standard_field)
+            lbl_field.setStyleSheet("font-weight:bold;font-size:10px;color:#1d4ed8;")
+            lbl_meta = QLabel(
+                f"row_offset={fm.row_offset}  "
+                f"x=[{fm.x_min:.0f},{fm.x_max:.0f}]"
+            )
+            lbl_meta.setStyleSheet("font-size:9px;color:#555;")
+            cl.addWidget(lbl_field)
+            cl.addWidget(lbl_meta)
+            self._field_list_layout.addWidget(card)
+
+    def _on_confirm(self) -> None:
+        from core import parser_registry
+        from core.zone_spec import zone_spec_to_config
+
+        if not self._fields:
+            QMessageBox.warning(self, "오류", "추출된 필드가 없습니다.")
+            return
+
+        config = zone_spec_to_config(self._zone_spec, self._fields)
         configs = parser_registry.load()
         configs.append(config)
         parser_registry.save(configs)
