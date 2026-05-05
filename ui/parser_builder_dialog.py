@@ -291,9 +291,9 @@ class ParserBuilderDialog(QDialog):
 
     def _on_confirm(self) -> None:
         from core import parser_registry
-        from core.zone_spec import zone_spec_to_config
+        from core.zone_spec import ZoneSpec, zone_spec_to_config
 
-        if self._zone_spec is None:
+        if not self._fields:
             QMessageBox.warning(self, "오류", "먼저 셀 목록을 생성하세요.")
             return
 
@@ -302,8 +302,22 @@ class ParserBuilderDialog(QDialog):
             QMessageBox.warning(self, "오류", "저장할 셀 매핑이 없습니다.")
             return
 
+        kw_text = self._kw_edit.text().strip()
+        keywords = [k.strip() for k in kw_text.split(",") if k.strip()]
+        zone_data = self._zone_editor.get_zone_data()
+        zone_spec = ZoneSpec(
+            broker_name=self._broker_edit.text().strip(),
+            detection_keywords=keywords,
+            start_page=self._start_spin.value(),
+            column_xs=zone_data["column_xs"],
+            template_row_ys_per_col=zone_data["template_row_ys_per_col"],
+            data_start_y=zone_data["data_start_y"],
+            data_end_y=zone_data["data_end_y"],
+            template_height=zone_data["template_height"],
+        )
+
         try:
-            config = zone_spec_to_config(self._zone_spec, mappings)
+            config = zone_spec_to_config(zone_spec, mappings)
         except ValueError as exc:
             QMessageBox.warning(self, "입력 오류", str(exc))
             return
