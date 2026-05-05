@@ -83,89 +83,95 @@ def build_class(config: "DynamicParserConfig") -> type:
             return 0.0
 
     def parse(self, pages):
+        import re as _re_mod
         transactions: list[Transaction] = []
         raw_rows: list[dict] = []
 
-        _anchor_fm_y: float = min(
-            (getattr(fm, "y", 0.0) for fm in _cfg.field_mappings if fm.row_offset == 0),
-            default=0.0,
+        _header_group_size = max(
+            (fm.row_offset for fm in _cfg.field_mappings), default=0
+        ) + 1
+        _date_fm = next(
+            (fm for fm in _cfg.field_mappings if fm.standard_field == "date"), None
         )
+        _date_x = _date_fm.x if _date_fm else None
+        _date_compiled = _re_mod.compile(_cfg.date_re)
+        X_TOLERANCE = 50.0
 
-        for page_idx, page in enumerate(pages):
-            if page_idx < _cfg.start_page:
-                continue
+        def _contains_skip(row_cells):
+            joined = " ".join(t for _, t in row_cells)
+            return any(kw in joined for kw in _cfg.skip_keywords)
 
-            if _cfg.layout_type in {"table", "template"}:
-                if _cfg.layout_type == "template":
-                    from core.pdf_utils import get_page_rows_with_y
-                    rows_with_y = list(get_page_rows_with_y(page, y_tolerance=4.0))
-                    row_ys = [ry for ry, _ in rows_with_y]
-                    all_rows = [cells for _, cells in rows_with_y]
-                else:
-                    all_rows = list(get_page_rows(page, y_tolerance=4.0))
-                    row_ys = []
+        from core.pdf_utils import get_page_rows_with_y as _get_rows_with_y
 
-                i = 0
-                while i < len(all_rows):
-                    anchor_texts = [cell[1] for cell in all_rows[i]]
-                    if not anchor_texts:
-                        i += 1
-                        continue
-                    if any(kw in " ".join(anchor_texts) for kw in _cfg.skip_keywords):
-                        i += 1
-                        continue
-                    if not _date_re.match(anchor_texts[0]):
-                        i += 1
-                        continue
+        if _cfg.layout_type == "header_mapped":
+            for page_idx, page in enumerate(pages):
+                if page_idx < _cfg.start_page:
+                    continue
 
-                    _rows_per_tx = getattr(_cfg, "rows_per_tx", 1)
+                rows_with_y = [
+                    (ry, rc)
+                    for ry, rc in _get_rows_with_y(page, y_tolerance=4.0)
+                    if rc and not _contains_skip(rc)
+                ]
+
+                groups: list[list[tuple]] = []
+                current: list[tuple] = []
+                for row_y, row_cells in rows_with_y:
+                    is_anchor = False
+                    if _date_x is not None:
+                        closest = min(row_cells, key=lambda c: abs(c[0] - _date_x))
+                        if _date_compiled.match(closest[1]):
+                            is_anchor = True
+                    if not is_anchor and any(_date_compiled.match(t) for _, t in row_cells):
+                        is_anchor = True
+
+                    if is_anchor:
+                        if current:
+                            groups.append(current)
+                        current = [(row_y, row_cells)]
+                    elif current:
+                        current.append((row_y, row_cells))
+                if current:
+                    groups.append(current)
+
+                for group in groups:
                     raw: dict = {}
-                    if _cfg.layout_type == "template":
-                        anchor_actual_y = row_ys[i]
-                        for fm in _cfg.field_mappings:
-                            target_y = anchor_actual_y + (getattr(fm, "y", 0.0) - _anchor_fm_y)
-                            closest_row_idx = min(
-                                range(len(row_ys)),
-                                key=lambda j, _ty=target_y: abs(row_ys[j] - _ty),
+                    for row_offset, (row_y, row_cells) in enumerate(group):
+                        if row_offset < _header_group_size:
+                            candidates = [fm for fm in _cfg.field_mappings
+                                          if fm.row_offset == row_offset]
+                        else:
+                            candidates = list(_cfg.field_mappings)
+                        if not candidates:
+                            continue
+                        for cell_x, cell_text in row_cells:
+                            best = min(candidates, key=lambda fm: abs(fm.x - cell_x))
+                            if abs(best.x - cell_x) > X_TOLERANCE:
+                                continue
+                            field = best.standard_field
+                            raw[field] = (
+                                raw[field] + " " + cell_text if raw.get(field) else cell_text
                             )
-                            row = all_rows[closest_row_idx]
-                            if row:
-                                closest = min(row, key=lambda c, _x=fm.x: abs(c[0] - _x))
-                                raw[fm.standard_field] = closest[1]
-                            else:
-                                raw[fm.standard_field] = ""
-                    else:
-                        groups: list[list[str]] = [anchor_texts]
-                        for offset in range(1, _rows_per_tx):
-                            j = i + offset
-                            groups.append([cell[1] for cell in all_rows[j]] if j < len(all_rows) else [])
-                        for fm in _cfg.field_mappings:
-                            grp = groups[fm.row_offset] if fm.row_offset < len(groups) else []
-                            _col_idx = getattr(fm, "column_index", 0)
-                            raw[fm.standard_field] = grp[_col_idx] if _col_idx < len(grp) else ""
-
-                    normalized = {
-                        infer_standard_field(key) or key: value
-                        for key, value in raw.items()
-                    }
                     transactions.append(Transaction(
-                        date=normalized.get("date", ""),
-                        type=normalized.get("type", ""),
-                        ticker=normalized.get("ticker", ""),
-                        name=normalized.get("name", ""),
-                        quantity=_parse_num(normalized.get("quantity", "")),
-                        price=_parse_num(normalized.get("price", "")),
-                        amount=_parse_num(normalized.get("amount", "")),
-                        fee=_parse_num(normalized.get("fee", "")),
-                        tax=_parse_num(normalized.get("tax", "")),
-                        balance=_parse_num(normalized.get("balance", "")),
+                        date=raw.get("date", ""),
+                        type=raw.get("type", ""),
+                        ticker=raw.get("ticker", ""),
+                        name=raw.get("name", ""),
+                        quantity=_parse_num(raw.get("quantity", "")),
+                        price=_parse_num(raw.get("price", "")),
+                        amount=_parse_num(raw.get("amount", "")),
+                        fee=_parse_num(raw.get("fee", "")),
+                        tax=_parse_num(raw.get("tax", "")),
+                        balance=_parse_num(raw.get("balance", "")),
                         broker=_cfg.broker_name,
                         raw=raw,
                     ))
                     raw_rows.append(raw)
-                    i += _rows_per_tx
 
-            elif _cfg.layout_type == "rotated":
+        elif _cfg.layout_type == "rotated":
+            for page_idx, page in enumerate(pages):
+                if page_idx < _cfg.start_page:
+                    continue
                 items: list[dict] = []
                 for block in page.get_text("dict").get("blocks", []):
                     if block.get("type") != 0:
@@ -180,8 +186,7 @@ def build_class(config: "DynamicParserConfig") -> type:
                                     "y_top": round(span["bbox"][1]),
                                     "text": text,
                                 })
-
-                for date_item in [it for it in items if _date_re.match(it["text"])]:
+                for date_item in [it for it in items if _date_compiled.match(it["text"])]:
                     raw = {"date": date_item["text"]}
                     for fm in _cfg.field_mappings:
                         if fm.standard_field == "date":
@@ -192,7 +197,6 @@ def build_class(config: "DynamicParserConfig") -> type:
                             and abs(it["x"] - date_item["x"]) <= 50
                         ]
                         raw[fm.standard_field] = candidates[0]["text"] if candidates else ""
-
                     transactions.append(Transaction(
                         date=raw.get("date", ""),
                         type=raw.get("type", ""),

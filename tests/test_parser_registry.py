@@ -128,3 +128,121 @@ def test_get_all_parsers_includes_dynamic(tmp_path, monkeypatch):
     save([cfg])
     names = [p.BROKER_NAME for p in get_all_parsers()]
     assert "다이나믹증권" in names
+
+
+def test_header_mapped_single_header_parses_two_transactions():
+    from unittest.mock import patch, MagicMock
+    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        date_re=r"\d{4}/\d{2}/\d{2}",
+        layout_type="header_mapped",
+        start_page=0,
+        skip_keywords=[],
+        field_mappings=[
+            FieldMapping(standard_field="date",   row_offset=0, x=50.0),
+            FieldMapping(standard_field="name",   row_offset=0, x=200.0),
+            FieldMapping(standard_field="amount", row_offset=0, x=350.0),
+        ],
+    )
+    mock_rows = [
+        (10.0, [(50.0, "2024/01/01"), (200.0, "삼성전자"), (350.0, "1000000")]),
+        (20.0, [(50.0, "2024/01/02"), (200.0, "카카오"),   (350.0, "500000")]),
+    ]
+    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
+        txns, raws = build_class(cfg)().parse([MagicMock()])
+
+    assert len(txns) == 2
+    assert txns[0].date == "2024/01/01"
+    assert txns[0].name == "삼성전자"
+    assert txns[0].amount == 1000000.0
+    assert txns[1].date == "2024/01/02"
+
+
+def test_header_mapped_continuation_row_concatenates():
+    from unittest.mock import patch, MagicMock
+    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        date_re=r"\d{4}/\d{2}/\d{2}",
+        layout_type="header_mapped",
+        start_page=0,
+        skip_keywords=[],
+        field_mappings=[
+            FieldMapping(standard_field="date", row_offset=0, x=50.0),
+            FieldMapping(standard_field="name", row_offset=0, x=200.0),
+        ],
+    )
+    mock_rows = [
+        (10.0, [(50.0, "2024/01/01"), (200.0, "1Q미국S&P500")]),
+        (20.0, [(200.0, "채혼합50액티브")]),  # continuation
+    ]
+    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
+        txns, _ = build_class(cfg)().parse([MagicMock()])
+
+    assert len(txns) == 1
+    assert txns[0].name == "1Q미국S&P500 채혼합50액티브"
+
+
+def test_header_mapped_two_header_rows_separate_fields():
+    from unittest.mock import patch, MagicMock
+    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        date_re=r"\d{4}/\d{2}/\d{2}",
+        layout_type="header_mapped",
+        start_page=0,
+        skip_keywords=[],
+        field_mappings=[
+            # Header row 0: date@50, type@150
+            FieldMapping(standard_field="date", row_offset=0, x=50.0),
+            FieldMapping(standard_field="type", row_offset=0, x=150.0),
+            # Header row 1: name@50, amount@150 (same x — different field by row_offset)
+            FieldMapping(standard_field="name",   row_offset=1, x=50.0),
+            FieldMapping(standard_field="amount", row_offset=1, x=150.0),
+        ],
+    )
+    mock_rows = [
+        (10.0, [(50.0, "2024/01/01"), (150.0, "매도")]),
+        (20.0, [(50.0, "삼성전자"),   (150.0, "1000000")]),
+    ]
+    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
+        txns, _ = build_class(cfg)().parse([MagicMock()])
+
+    assert len(txns) == 1
+    assert txns[0].type == "매도"
+    assert txns[0].name == "삼성전자"
+    assert txns[0].amount == 1000000.0
+
+
+def test_header_mapped_skip_keywords_filter_rows():
+    from unittest.mock import patch, MagicMock
+    from core.parser_registry import DynamicParserConfig, FieldMapping, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        date_re=r"\d{4}/\d{2}/\d{2}",
+        layout_type="header_mapped",
+        start_page=0,
+        skip_keywords=["합계"],
+        field_mappings=[
+            FieldMapping(standard_field="date",   row_offset=0, x=50.0),
+            FieldMapping(standard_field="amount", row_offset=0, x=150.0),
+        ],
+    )
+    mock_rows = [
+        (10.0, [(50.0, "2024/01/01"), (150.0, "1000000")]),
+        (20.0, [(50.0, "합계"),       (150.0, "9999999")]),
+    ]
+    with patch("core.pdf_utils.get_page_rows_with_y", return_value=mock_rows):
+        txns, _ = build_class(cfg)().parse([MagicMock()])
+
+    assert len(txns) == 1
+    assert txns[0].amount == 1000000.0
