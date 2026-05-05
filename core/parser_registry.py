@@ -6,8 +6,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from core.models import STANDARD_FIELDS
 
-VALID_STANDARD_FIELDS = {"date", "type", "amount", "balance"}
+
+VALID_STANDARD_FIELDS = set(STANDARD_FIELDS)
 
 
 @dataclass
@@ -159,7 +161,10 @@ def build_class(config: DynamicParserConfig) -> type:
         slot_y: float,
     ) -> str:
         y_min = slot_y + mapping.template_y_min
-        y_max = slot_y + mapping.template_y_max
+        y_max = min(slot_y + mapping.template_y_max, _cfg.data_end_y)
+        if y_min >= y_max:
+            return ""
+
         selected = []
         for x0, y0, x1, y1, text in words:
             cx = (x0 + x1) / 2.0

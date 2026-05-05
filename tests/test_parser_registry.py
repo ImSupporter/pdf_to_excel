@@ -209,6 +209,37 @@ def test_coordinate_template_uses_half_open_cell_bounds():
     ]
 
 
+def test_coordinate_template_clamps_final_partial_slot_to_data_end_y():
+    from core.parser_registry import CellMapping, DynamicParserConfig, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        layout_type="coordinate_template",
+        start_page=0,
+        data_start_y=100.0,
+        data_end_y=125.0,
+        template_height=20.0,
+        column_xs=[100.0],
+        template_row_ys_per_col={},
+        cell_mappings=[
+            CellMapping("사용자일자", "date", 0, 0.0, 100.0, 0.0, 20.0),
+            CellMapping("요약", None, 1, 100.0, 200.0, 0.0, 20.0),
+        ],
+    )
+    words = [
+        (10.0, 121.0, 70.0, 123.0, "2026/05/02", 0, 0, 0),
+        (110.0, 126.0, 160.0, 128.0, "합계", 0, 0, 1),
+    ]
+
+    txns, raws = build_class(cfg)().parse([_mock_page(words)])
+
+    assert raws == [
+        {"사용자일자": "2026/05/02", "요약": ""},
+    ]
+    assert txns[0].date == "2026/05/02"
+
+
 def test_coordinate_template_parses_repeated_rows_with_display_names():
     from core.parser_registry import CellMapping, DynamicParserConfig, build_class
 
