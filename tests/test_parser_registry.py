@@ -345,3 +345,57 @@ def test_coordinate_template_falls_back_to_ocr_words_when_pdf_has_no_text_words(
     assert raws == [{"사용자일자": "2026/05/01", "사용자금액": "1,000"}]
     assert txns[0].date == "2026/05/01"
     assert txns[0].amount == 1000.0
+
+
+def test_progress_cb_called_for_each_page():
+    from core.parser_registry import DynamicParserConfig, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        layout_type="coordinate_template",
+        start_page=0,
+        data_start_y=100.0,
+        data_end_y=120.0,
+        template_height=20.0,
+        column_xs=[],
+        template_row_ys_per_col={},
+        cell_mappings=[],
+    )
+
+    calls = []
+
+    def cb(page_idx, total):
+        calls.append((page_idx, total))
+
+    pages = [_mock_page([]), _mock_page([])]
+    build_class(cfg)().parse(pages, progress_cb=cb)
+
+    assert calls == [(0, 2), (1, 2)]
+
+
+def test_progress_cb_called_for_skipped_pages():
+    from core.parser_registry import DynamicParserConfig, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="테스트",
+        detection_keywords=["테스트"],
+        layout_type="coordinate_template",
+        start_page=1,
+        data_start_y=100.0,
+        data_end_y=120.0,
+        template_height=20.0,
+        column_xs=[],
+        template_row_ys_per_col={},
+        cell_mappings=[],
+    )
+
+    calls = []
+
+    def cb(page_idx, total):
+        calls.append((page_idx, total))
+
+    pages = [_mock_page([]), _mock_page([])]
+    build_class(cfg)().parse(pages, progress_cb=cb)
+
+    assert calls == [(0, 2), (1, 2)]

@@ -181,18 +181,21 @@ def build_class(config: DynamicParserConfig) -> type:
             for _y, _x, text in sorted(selected, key=lambda item: (item[0], item[1]))
         )
 
-    def parse(self, pages):
+    def parse(self, pages, progress_cb=None):
         transactions: list[Transaction] = []
         raw_rows: list[dict] = []
 
         if _cfg.layout_type != "coordinate_template" or _cfg.template_height <= 0:
             return transactions, raw_rows
 
+        total_pages = len(pages)
         for page_idx, page in enumerate(pages):
             if page_idx < _cfg.start_page:
+                if progress_cb:
+                    progress_cb(page_idx, total_pages)
                 continue
 
-            words = _words_for_page(page)
+            words = _words_for_page(page) if _cfg.cell_mappings else []
             slot_y = _cfg.data_start_y
             while slot_y < _cfg.data_end_y:
                 raw = {mapping.display_name: "" for mapping in _cfg.cell_mappings}
@@ -222,6 +225,9 @@ def build_class(config: DynamicParserConfig) -> type:
                     )
                     raw_rows.append(raw)
                 slot_y += _cfg.template_height
+
+            if progress_cb:
+                progress_cb(page_idx, total_pages)
 
         return transactions, raw_rows
 

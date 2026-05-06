@@ -7,7 +7,7 @@ class BaseParser(ABC):
     DETECTION_KEYWORDS: list[str] = []
 
     @abstractmethod
-    def parse(self, pages: list[fitz.Page]) -> tuple[list[Transaction], list[dict]]:
+    def parse(self, pages: list[fitz.Page], progress_cb=None) -> tuple[list[Transaction], list[dict]]:
         """
         Returns: (transactions, raw_rows)
         - transactions: normalized Transaction list
