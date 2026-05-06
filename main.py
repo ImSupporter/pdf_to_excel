@@ -1,4 +1,8 @@
 import sys
+
+# PyTorch 2.9+ on Windows can fail to load c10.dll if it is imported after PyQt.
+import torch  # noqa: F401
+
 from PyQt6.QtWidgets import QApplication
 from ui.main_window import MainWindow
 

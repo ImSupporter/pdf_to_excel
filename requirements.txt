@@ -2,5 +2,8 @@ PyMuPDF==1.27.2.3
 PyQt6==6.7.0
 openpyxl==3.1.4
 pytest==8.2.0
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch==2.11.0+cu126
+torchvision==0.26.0+cu126
 easyocr>=1.7.0
 numpy>=1.24.0,<2

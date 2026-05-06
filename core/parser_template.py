@@ -7,6 +7,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
 from core.models import STANDARD_FIELDS
+from core.text_cleaning import remove_ignored_chars
 
 YELLOW_FILL = "FFFF00"
 GRAY_FILL = "BFBFBF"
@@ -150,7 +151,7 @@ def _extract_page_cells(page: fitz.Page, page_index: int, y_tolerance: float = 4
                     column_index=column_index,
                     x=float(x),
                     y=float(row_index),
-                    text=text,
+                    text=remove_ignored_chars(text),
                 ))
         return cells
 
@@ -159,7 +160,9 @@ def _extract_page_cells(page: fitz.Page, page_index: int, y_tolerance: float = 4
     current_y = sorted(words, key=lambda w: w[1])[0][1]
 
     for word in sorted(words, key=lambda w: w[1]):
-        x0, y0, text = word[0], word[1], word[4]
+        x0, y0, text = word[0], word[1], remove_ignored_chars(word[4])
+        if not text:
+            continue
         if abs(y0 - current_y) <= y_tolerance:
             current.append((x0, y0, text))
         else:

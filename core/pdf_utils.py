@@ -1,5 +1,6 @@
 import fitz
 from core.ocr import is_scanned_page, ocr_page_to_rows
+from core.text_cleaning import remove_ignored_chars
 
 def get_page_rows(page: fitz.Page, y_tolerance: float = 4.0) -> list[list[tuple]]:
     """
@@ -23,11 +24,14 @@ def get_page_rows(page: fitz.Page, y_tolerance: float = 4.0) -> list[list[tuple]
 
     for w in words_sorted:
         if abs(w[1] - current_y) <= y_tolerance:
-            current_row.append((w[0], w[4]))
+            text = remove_ignored_chars(w[4])
+            if text:
+                current_row.append((w[0], text))
         else:
             if current_row:
                 rows.append(sorted(current_row, key=lambda c: c[0]))
-            current_row = [(w[0], w[4])]
+            text = remove_ignored_chars(w[4])
+            current_row = [(w[0], text)] if text else []
             current_y = w[1]
 
     if current_row:
@@ -53,11 +57,14 @@ def get_page_rows_with_y(page: fitz.Page, y_tolerance: float = 4.0) -> list[tupl
 
     for w in words_sorted:
         if abs(w[1] - current_y) <= y_tolerance:
-            current_row.append((w[0], w[4]))
+            text = remove_ignored_chars(w[4])
+            if text:
+                current_row.append((w[0], text))
         else:
             if current_row:
                 result.append((current_y, sorted(current_row, key=lambda c: c[0])))
-            current_row = [(w[0], w[4])]
+            text = remove_ignored_chars(w[4])
+            current_row = [(w[0], text)] if text else []
             current_y = w[1]
 
     if current_row:

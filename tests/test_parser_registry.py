@@ -178,6 +178,36 @@ def test_coordinate_template_joins_duplicate_display_and_standard_fields():
     assert txns[0].type == "매수 입금"
 
 
+def test_coordinate_template_ignores_greater_than_and_equals_chars():
+    from core.parser_registry import CellMapping, DynamicParserConfig, build_class
+
+    cfg = DynamicParserConfig(
+        broker_name="test",
+        detection_keywords=["test"],
+        layout_type="coordinate_template",
+        start_page=0,
+        data_start_y=100.0,
+        data_end_y=120.0,
+        template_height=20.0,
+        column_xs=[100.0, 200.0],
+        template_row_ys_per_col={},
+        cell_mappings=[
+            CellMapping("date", "date", 0, 0.0, 100.0, 0.0, 20.0),
+            CellMapping("amount", "amount", 1, 100.0, 200.0, 0.0, 20.0),
+        ],
+    )
+    words = [
+        (10.0, 102.0, 70.0, 110.0, ">2026/05/01", 0, 0, 0),
+        (110.0, 102.0, 180.0, 110.0, "=1,000>", 0, 0, 1),
+    ]
+
+    txns, raws = build_class(cfg)().parse([_mock_page(words)])
+
+    assert raws == [{"date": "2026/05/01", "amount": "1,000"}]
+    assert txns[0].date == "2026/05/01"
+    assert txns[0].amount == 1000.0
+
+
 def test_coordinate_template_uses_half_open_cell_bounds():
     from core.parser_registry import CellMapping, DynamicParserConfig, build_class
 

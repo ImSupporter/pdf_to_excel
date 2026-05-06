@@ -19,3 +19,19 @@ def test_detect_parser_falls_back_to_ocr_words_when_page_text_is_empty(monkeypat
         detected = detector.detect_parser([page])
 
     assert detected is TestParser
+
+
+def test_detect_parser_ignores_greater_than_and_equals_chars(monkeypatch):
+    from core import detector, parser_registry
+
+    class TestParser:
+        BROKER_NAME = "test"
+        DETECTION_KEYWORDS = ["ABC"]
+
+    page = MagicMock()
+    page.get_text.return_value = "A>B=C"
+    monkeypatch.setattr(parser_registry, "get_all_parsers", lambda: [TestParser])
+
+    detected = detector.detect_parser([page])
+
+    assert detected is TestParser

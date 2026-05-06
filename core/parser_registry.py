@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core.models import STANDARD_FIELDS
+from core.text_cleaning import remove_ignored_chars
 
 
 VALID_STANDARD_FIELDS = set(STANDARD_FIELDS)
@@ -146,7 +147,7 @@ def build_class(config: DynamicParserConfig) -> type:
         for word in words:
             if len(word) < 5:
                 continue
-            text = str(word[4]).strip()
+            text = remove_ignored_chars(word[4])
             if not text:
                 continue
             normalized.append(

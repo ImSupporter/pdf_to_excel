@@ -1,6 +1,8 @@
 import fitz
 import numpy as np
 
+from core.text_cleaning import remove_ignored_chars
+
 _reader = None
 
 
@@ -62,13 +64,14 @@ def ocr_page_to_words(
 
     words = []
     for bbox, text, conf in results:
-        if conf < min_confidence or not text.strip():
+        text = remove_ignored_chars(text)
+        if conf < min_confidence or not text:
             continue
         x0 = min(p[0] for p in bbox) / scale
         y0 = min(p[1] for p in bbox) / scale
         x1 = max(p[0] for p in bbox) / scale
         y1 = max(p[1] for p in bbox) / scale
-        words.append((x0, y0, x1, y1, text.strip()))
+        words.append((x0, y0, x1, y1, text))
 
     return sorted(words, key=lambda w: (w[1], w[0]))
 

@@ -35,3 +35,15 @@ def test_get_page_rows_sorted_by_x():
     for row in rows:
         xs = [cell[0] for cell in row]
         assert xs == sorted(xs)
+
+
+def test_get_page_rows_ignores_greater_than_and_equals_chars():
+    words = [
+        (10.0, 20.0, 50.0, 30.0, ">ABC=", 0, 0, 0),
+        (60.0, 20.0, 120.0, 30.0, "=>", 0, 0, 1),
+    ]
+    mock_page = _make_mock_page(words)
+    with patch("core.pdf_utils.is_scanned_page", return_value=False):
+        rows = get_page_rows(mock_page)
+
+    assert rows == [[(10.0, "ABC")]]
