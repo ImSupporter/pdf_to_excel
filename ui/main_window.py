@@ -60,6 +60,9 @@ class ConvertWorker(QThread):
                 f"파일이 열려 있습니다. 닫고 다시 시도하세요:\n{self.output_path}",
             )
             return
+        except Exception as e:
+            self.finished.emit(False, str(e))
+            return
 
         self.progress.emit(100, "완료!")
         self.finished.emit(True, self.output_path)

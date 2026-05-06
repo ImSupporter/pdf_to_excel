@@ -81,3 +81,14 @@ def test_excel_step_emits_correct_label(tmp_path):
     emitted = [args for args, _ in worker.progress.emit.call_args_list]
     assert emitted[-2] == (100, "엑셀 파일 생성 중...")
     assert emitted[-1] == (100, "완료!")
+
+
+def test_export_error_emits_finished_false(tmp_path):
+    pages = [MagicMock()]
+    worker = _make_worker([("파일.pdf", "", _FakeParser)], str(tmp_path / "out.xlsx"))
+
+    with patch("ui.main_window.load_pdf", return_value=pages), \
+         patch("ui.main_window.export_to_excel", side_effect=OSError("디스크 오류")):
+        worker.run()
+
+    worker.finished.emit.assert_called_once_with(False, "디스크 오류")
