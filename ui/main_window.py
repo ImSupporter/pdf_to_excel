@@ -23,24 +23,42 @@ class ConvertWorker(QThread):
 
     def run(self):
         broker_raw: dict[str, list[dict]] = defaultdict(list)
-        total = len(self.file_entries)
 
-        for i, (path, password, parser_class) in enumerate(self.file_entries):
+        for path, password, parser_class in self.file_entries:
+            filename = os.path.basename(path)
+            self.progress.emit(0, f"로딩 중: {filename}")
             try:
-                self.progress.emit(int((i / total) * 80), f"파싱 중: {os.path.basename(path)}")
                 pages = load_pdf(path, password)
+            except Exception as e:
+                self.finished.emit(False, str(e))
+                return
+
+            total_pages = len(pages)
+
+            def make_cb(fn, tp):
+                def cb(page_idx, _total):
+                    pct = int((page_idx + 1) / tp * 100)
+                    self.progress.emit(pct, f"{fn} 페이지 {page_idx + 1}/{tp}")
+                return cb
+
+            try:
                 parser = parser_class()
-                _transactions, raw_rows = parser.parse(pages)
+                _transactions, raw_rows = parser.parse(
+                    pages, progress_cb=make_cb(filename, total_pages)
+                )
                 broker_raw[parser_class.BROKER_NAME].extend(raw_rows)
             except Exception as e:
                 self.finished.emit(False, str(e))
                 return
 
-        self.progress.emit(90, "엑셀 파일 생성 중...")
+        self.progress.emit(100, "엑셀 파일 생성 중...")
         try:
             export_to_excel(dict(broker_raw), self.output_path)
         except PermissionError:
-            self.finished.emit(False, f"파일이 열려 있습니다. 닫고 다시 시도하세요:\n{self.output_path}")
+            self.finished.emit(
+                False,
+                f"파일이 열려 있습니다. 닫고 다시 시도하세요:\n{self.output_path}",
+            )
             return
 
         self.progress.emit(100, "완료!")
